@@ -1,0 +1,45 @@
+# SN2020yue magnitudes from Swift UVOT                                                        
+# generated Wed Mar 6 18:54:41 UTC 2024 using version 2015.1                                         
+# of Peter Brown's photometry pipeline                                                      
+# and version Swift_Rel5.8(Bld47)_30Jun2023 of HEASOFT                                                      
+#                                                                                         
+# Data comes from the Swift Data Center                                                   
+# A 5 arcsec aperture is used to measure the counts for the coincidence loss correction,  
+# a 3 or 5 arcsec source aperture (based on the error) was used for the aperture photometry 
+# subtracting off the galaxy count rate in a template image  (if available),              
+# and applying an aperture correction as appropriate (based on average psf in Swift CALDB)
+# and zeropoints from Breeveld et al. (2011) which update Poole et al. (2008)             
+# including a time-dependent sensitivity loss                                             
+# to put the magnitudes on the UVOT photometric system described in that paper.   
+# The sensitivity correction has been updated based on the 2015 redetermination.        
+#
+#  Brown, P. J., Holland, S. T., Immler, S., et al. 2009, ApJ, 137, 4517
+#  Brown, P. J., et al. 2014, Ap&SS, submitted
+#  Breeveld, A. A., Landsman, W., Holland, S. T., et al. 2011, in AIP Conf. Proc. 1358,   
+#     Gamma-Ray Bursts 2010, ed. J. E. McEnergy, J. L. Racusin, & N. Gehrels                 
+#     (Melville, NY: AIP), 373; arXiv:1102.4717                                              
+#  Poole, T. S., Breeveld, A. A., Page, M. J., et al. 2008, MNRAS, 383, 627
+#                                                                                         
+#                                                                                           
+#                                                                                           
+# The underlying galaxy had the following count rates                                       
+# in a 5 arcsec aperture at the source position  
+# (missing filters list 0 but used a background region similar to the SN ):                 
+# Galaxy count rates in 5" aperture
+# UVM2           0.102172      0.0105080
+#                                                                                           
+# There are no known issues with this photometry.                                           
+#                                                                                           
+# Filter MJD[days] Mag MagErr 3SigMagLim 0.98SatLim[mag] Rate[c/s] RateErr[c/s] Ap[arcsec] Frametime[s] Exp[s] Telapse[s]
+#                                                                                           
+#                                                                                           
+UVM2     59196.5945  19.079   0.292  19.356  10.556   0.128   0.035   3.000      0.0110322     345.24     350.77
+UVM2     59203.4979  18.930   0.262  19.374  10.556   0.147   0.036   3.000      0.0110322     359.26     365.01
+UVM2     59210.4005  19.345   0.330  19.437  10.556   0.100   0.031   3.000      0.0110322     392.84     399.14
+UVM2     59219.3881    NULL    NULL  19.205  10.556  -0.004   0.026   3.000      0.0110322     268.60    5545.81
+UVM2     59224.0750  19.372   0.345  19.400  10.556   0.098   0.031   3.000      0.0110322     364.33     370.17
+#                                                                                           
+#                                                                                           
+#                                                                                           
+#                                                                                           
+#                                                                                           
