@@ -27,6 +27,8 @@ class SN():
         self.subtype  = subtype
         self.name = name
         self.data = {}
+        self.peak_mjd = 0
+        self.peak_mag = 0
 
 
     def __repr__(self):
@@ -36,6 +38,10 @@ class SN():
     def load_swift_data(self):
 
         ### Load the Swift data for this object
+        if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_uvotB15.1.dat')):
+            print('No Swift file for ', self.name)
+            return
+
         df = pd.read_csv(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_uvotB15.1.dat'), delim_whitespace=True, comment='#', names=['Filter', 'MJD', 'Mag', 'MagErr', '3SigMagLim', '0.98SatLim', 'Rate', 'RateErr', 'Ap', 'Frametime', 'Exp', 'Telapse'])
 
         for i, row in df.iterrows():
@@ -174,31 +180,40 @@ class SN():
 
     def shift_to_max(self, filt, shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=False):
 
-        self.load_swift_data()
-        self.load_json_data()
+        if not self.data:
+            self.load_swift_data()
+            self.load_json_data()
 
         if filt not in self.data.keys():
             return [], [], []
 
-        peak_mjd, peak_mag = self.fit_for_max(filt, shift_array=shift_array, plot=plot)
-        while not peak_mjd:
-            # Fitting didn't work, try another filter
-            for newfilt in ['V', 'g', 'c', 'B', 'r', 'o', 'U', 'i', 'UVW1']:
-                if newfilt in self.data.keys() and newfilt != filt:
-                    peak_mjd, peak_mag = self.fit_for_max(newfilt, shift_array=shift_array, plot=plot)
+
+        if not self.peak_mjd > 0 and not self.peak_mag > 0:
+
+            peak_mjd, peak_mag = self.fit_for_max(filt, shift_array=shift_array, plot=plot)
+            while not peak_mjd:
+                # Fitting didn't work, try another filter
+                for newfilt in ['V', 'g', 'c', 'B', 'r', 'o', 'U', 'i', 'UVW1']:
+                    if newfilt in self.data.keys() and newfilt != filt:
+                        peak_mjd, peak_mag = self.fit_for_max(newfilt, shift_array=shift_array, plot=plot)
+            
+                if newfilt == 'UVW1' and not peak_mjd:
+                    print('Reached last filter and could not fit for peak')
+                    break
         
-            if newfilt == 'UVW1' and not peak_mjd:
-                print('Reached last filter and could not fit for peak')
-                break
-        
-        if not peak_mag:
+        if not self.peak_mag > 0:
             return [], [], []
 
-        mjds = np.asarray([phot['mjd'] for phot in self.data[filt]]) - peak_mjd
-        mags = np.asarray([phot['mag'] for phot in self.data[filt]]) - peak_mag
+        mjds = np.asarray([phot['mjd'] for phot in self.data[filt]]) - self.peak_mjd
+        mags = np.asarray([phot['mag'] for phot in self.data[filt]]) - self.peak_mag
         errs = np.asarray([phot['err'] for phot in self.data[filt]])
 
         return mjds, mags, errs
+
+
+    def log_transform_time(self, phases, phase_start=30):
+
+        return np.log(phases + phase_start)
 
 
 class Type():
@@ -246,6 +261,7 @@ class Type():
             for sn in self.sne[subtype]:
 
                 mjds, mags, errs = sn.shift_to_max(filt)
+                mjds = sn.log_transform_time(mjds)
                 ax.errorbar(mjds, mags, yerr=errs, fmt='o', color='k')
             
             plt.gca().invert_yaxis()
@@ -314,7 +330,7 @@ class GP(Fitter):
         self.kernel = kernel
 
 
-    def process_dataset_for_gp(self, filt, phasemin, phasemax):
+    def process_dataset_for_gp(self, filt, phasemin, phasemax, log_transform=False):
         phases, mags, errs = np.asarray([]), np.asarray([]), np.asarray([])
 
         for sn in self.type.sne[self.subtype]:
@@ -322,7 +338,14 @@ class GP(Fitter):
             shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             if len(shifted_mjd) == 0:
                 continue
-            inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
+            if log_transform is not False:
+                shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
+
+            if log_transform is not False:
+                inds_to_fit = np.where((shifted_mjd > np.log(phasemin+log_transform)) & (shifted_mjd < np.log(phasemax+log_transform)))[0]
+            else:
+                inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
+            
             phases = np.concatenate((phases, shifted_mjd[inds_to_fit]))
             mags = np.concatenate((mags, shifted_mag[inds_to_fit]))
             errs = np.concatenate((errs, err[inds_to_fit]))
@@ -395,9 +418,9 @@ class GP3D(GP):
            'W': 33526, 'Q': 46028
     }
 
-    def build_samples_3d(self, filt, phasemin, phasemax):
+    def build_samples_3d(self, filt, phasemin, phasemax, log_transform=False):
 
-        phases, mags, errs = self.process_dataset_for_gp(filt, phasemin, phasemax)
+        phases, mags, errs = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform)
 
         min_phase, max_phase = sorted(phases)[0], sorted(phases)[-1]
         phase_grid = np.linspace(min_phase, max_phase, len(phases))
@@ -422,12 +445,12 @@ class GP3D(GP):
         return phases, wl_grid, mags, err_grid
 
 
-    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax):
+    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False):
 
         all_phases, all_wls, all_mags, all_errs = [], [], [], []
 
         for filt in filtlist:
-            phases, wl_grid, mags, err_grid = self.build_samples_3d(filt, phasemin, phasemax)
+            phases, wl_grid, mags, err_grid = self.build_samples_3d(filt, phasemin, phasemax, log_transform=log_transform)
 
             all_phases = np.concatenate((all_phases, phases.flatten()))
             all_wls = np.concatenate((all_wls, wl_grid.flatten()))
@@ -437,9 +460,9 @@ class GP3D(GP):
         return all_phases, all_wls, all_mags, all_errs
 
 
-    def run_gp(self, filtlist, phasemin, phasemax, test_size):
+    def run_gp(self, filtlist, phasemin, phasemax, test_size, log_transform=False):
 
-        all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax)
+        all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform)
         x = np.vstack((all_phases, all_wls)).T
         y = all_mags
         err = all_errs
@@ -458,9 +481,9 @@ class GP3D(GP):
         return gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test
 
 
-    def predict_gp(self, filtlist, phasemin, phasemax, test_size, plot=False):
+    def predict_gp(self, filtlist, phasemin, phasemax, test_size, plot=False, log_transform=False):
 
-        gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test = self.run_gp(filtlist, phasemin, phasemax, test_size)
+        gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test = self.run_gp(filtlist, phasemin, phasemax, test_size, log_transform=log_transform)
 
         if plot:
             fig, ax = plt.subplots()
@@ -473,6 +496,8 @@ class GP3D(GP):
             test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
 
             if plot:
+                if log_transform is not False:
+                    test_times = np.exp(test_times) - log_transform
                 ax.plot(test_times, test_prediction, label=filt)
                 ax.fill_between(
                         test_times,
@@ -487,35 +512,10 @@ class GP3D(GP):
             plt.show()
 
 
-#sn = SN(classification='FBOT', subtype='SNIbn', name='SN2022ablq')
-##sn = SN(classification='SNII', subtype='SNIIP', name='SN2016X')
-#
-#sn.load_swift_data()
-#sn.load_json_data()
-#peak_mjd, peak_mag = sn.fit_for_max('V', plot=True)
-#while not peak_mjd:
-#    # Fitting didn't work, try another filter
-#    for filt in ['g', 'c', 'B', 'r', 'o', 'U', 'i', 'UVW1']:
-#        if filt in sn.data.keys():
-#            peak_mjd, peak_mag = sn.fit_for_max(filt, plot=True)
-#
-#    if filt == 'UVW1' and not peak_mjd:
-#        print('Reached last filter and could not fit for peak')
-#        peak_mjd = True
-#
-#if not peak_mag:
-#    sn.plot_data(shift=False)
-#else:
-#    sn.plot_data(shift=True)
 
-
-#typ = Type(classification='FBOT')
-#typ.build_object_list()
-#typ.plot_all_lcs('U')
-
-kernel = RBFKernel([10.0, 500.0], (1., 2.0e3)).kernel + WhiteNoiseKernel(1., (1e-10, 10.)).kernel
+kernel = RBFKernel([np.log(10.0), 500.0], (0.1, 2.0e3)).kernel + WhiteNoiseKernel(1., (1e-10, 10.)).kernel
 #kernel = Matern([10.0, 500.0], (1., 2.0e3), 2.5)
 gp = GP3D('SNII', 'SNIIP', kernel)
-gp.predict_gp(['UVW2', 'UVM2', 'UVW1', 'U', 'B', 'V'], -30, 50, 0.9, plot=True)
+gp.predict_gp(['UVW2', 'UVM2', 'UVW1', 'U', 'B', 'V'], -20, 50, 0.9, plot=True, log_transform=30)
 
 print(gp.gaussian_process.kernel_)
