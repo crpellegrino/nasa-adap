@@ -18,7 +18,7 @@ class SN():
     a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko)
     """
 
-    base_path = '/home/cmp5cr/nasa_adap/data/'
+    base_path = '../data/'
 
 
     def __init__(self, classification, subtype, name):
@@ -221,7 +221,7 @@ class Type():
     """
     A Type object, building a collection of all SNe of a given type (classification)
     """
-    base_path = '/home/cmp5cr/nasa_adap/data/'
+    base_path = '../data/'
     sne = {}
     subtypes = []
 
