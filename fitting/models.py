@@ -60,7 +60,7 @@ class SN:
 
         for f in dirfiles:
             if '.json' in f:
-                print('Working with ', f)
+                # print('Working with ', f)
                 with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, f), 'r') as jsonf:
                     d = json.load(jsonf)
 
@@ -306,7 +306,7 @@ class WhiteNoiseKernel:
         self.kernel = WhiteKernel(noise_level=noise_level, noise_level_bounds=noise_level_bounds)
     
 
-def MaternKernel():
+class MaternKernel:
 
     """
     A MaternKernel, to be used in GP fitting
@@ -503,21 +503,14 @@ class GP3D(GP):
                         test_times,
                         test_prediction - 1.96*std_prediction,
                         test_prediction + 1.96*std_prediction,
-                        alpha=0.5,
+                        alpha=0.2,
                 )
 
         if plot:
             ax.invert_yaxis()
             ax.set_xlabel('Normalized Time [days]')
             ax.set_ylabel('Normalized Magnitude')
+            plt.suptitle('Classification: {}'.format(self.classification))
+            ax.set_title('SubType: {}'.format(self.subtype))
             plt.legend()
             plt.show()
-
-
-
-# kernel = RBFKernel([np.log(10.0), 500.0], (0.1, 2.0e3)).kernel + WhiteNoiseKernel(1., (1e-10, 10.)).kernel
-# #kernel = Matern([10.0, 500.0], (1., 2.0e3), 2.5)
-# gp = GP3D('SNII', 'SNIIP', kernel)
-# gp.predict_gp(['UVW2', 'UVM2', 'UVW1', 'U', 'B', 'V'], -20, 50, 0.9, plot=True, log_transform=30)
-
-# print(gp.gaussian_process.kernel_)
