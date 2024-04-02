@@ -12,7 +12,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-class SN():
+class SN:
     """
     A Supernova object, taking a classification (i.e. SN II, SESN, FBOT, etc.),
     a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko)
@@ -216,7 +216,7 @@ class SN():
         return np.log(phases + phase_start)
 
 
-class Type():
+class Type:
 
     """
     A Type object, building a collection of all SNe of a given type (classification)
@@ -269,7 +269,7 @@ class Type():
             plt.show()
         
 
-class Fitter():
+class Fitter:
 
     """
     A Fitter object, fitting the light curves of a class (Type) of supernovae
@@ -282,7 +282,7 @@ class Fitter():
         self.type.build_object_list()
 
 
-class RBFKernel():
+class RBFKernel:
 
     """
     An RBFKernel object, to be used in GP fitting
@@ -294,7 +294,7 @@ class RBFKernel():
         self.kernel = RBF(length_scale=length_scale, length_scale_bounds=length_scale_bounds)
 
 
-class WhiteNoiseKernel():
+class WhiteNoiseKernel:
 
     """
     An RBFKernel object, to be used in GP fitting
