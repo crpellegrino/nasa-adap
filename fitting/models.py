@@ -12,7 +12,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-class SN():
+class SN:
     """
     A Supernova object, taking a classification (i.e. SN II, SESN, FBOT, etc.),
     a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko)
@@ -60,7 +60,7 @@ class SN():
 
         for f in dirfiles:
             if '.json' in f:
-                print('Working with ', f)
+                # print('Working with ', f)
                 with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, f), 'r') as jsonf:
                     d = json.load(jsonf)
 
@@ -216,7 +216,7 @@ class SN():
         return np.log(phases + phase_start)
 
 
-class Type():
+class Type:
 
     """
     A Type object, building a collection of all SNe of a given type (classification)
@@ -283,7 +283,7 @@ class Type():
             plt.show()
         
 
-class Fitter():
+class Fitter:
 
     """
     A Fitter object, fitting the light curves of a class (Type) of supernovae
@@ -296,7 +296,7 @@ class Fitter():
         self.type.build_object_list()
 
 
-class RBFKernel():
+class RBFKernel:
 
     """
     An RBFKernel object, to be used in GP fitting
@@ -308,7 +308,7 @@ class RBFKernel():
         self.kernel = RBF(length_scale=length_scale, length_scale_bounds=length_scale_bounds)
 
 
-class WhiteNoiseKernel():
+class WhiteNoiseKernel:
 
     """
     An RBFKernel object, to be used in GP fitting
@@ -320,7 +320,7 @@ class WhiteNoiseKernel():
         self.kernel = WhiteKernel(noise_level=noise_level, noise_level_bounds=noise_level_bounds)
     
 
-def MaternKernel():
+class MaternKernel:
 
     """
     A MaternKernel, to be used in GP fitting
@@ -563,12 +563,15 @@ class GP3D(GP):
                         test_times,
                         test_prediction - 1.96*std_prediction,
                         test_prediction + 1.96*std_prediction,
-                        alpha=0.5,
+                        alpha=0.2,
                 )
 
         if plot:
             ax.invert_yaxis()
             ax.set_xlabel('Normalized Time [days]')
             ax.set_ylabel('Normalized Magnitude')
+            plt.suptitle('Classification: {}'.format(self.classification))
+            ax.set_title('SubType: {}'.format(self.subtype))
             plt.legend()
             plt.show()
+

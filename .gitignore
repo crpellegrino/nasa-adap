@@ -1,1 +1,3 @@
 swift_uvot_reductions/
+**/__pycache__/
+**/test.py
