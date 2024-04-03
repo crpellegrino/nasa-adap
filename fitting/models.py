@@ -231,6 +231,7 @@ class Type():
         self.classification = classification
 
         self.get_subtypes()
+        self.build_object_list()
 
 
     def get_subtypes(self):
@@ -251,9 +252,17 @@ class Type():
                     self.sne[subtype].append(sn)
 
 
-    def plot_all_lcs(self, filt):
+    def plot_all_lcs(self, filt, subtypes='all', log_transform=False):
 
-        for subtype in self.subtypes:
+        if not type(subtypes) == list:
+            subtypes = [subtypes]
+
+        if 'all' in subtypes:
+            subtypes = self.subtypes
+
+        print(subtypes)
+
+        for subtype in subtypes:
 
             fig, ax = plt.subplots()
             
@@ -261,7 +270,12 @@ class Type():
             for sn in self.sne[subtype]:
 
                 mjds, mags, errs = sn.shift_to_max(filt)
-                mjds = sn.log_transform_time(mjds)
+                
+                if len(mjds) == 0:
+                    continue
+                
+                if log_transform is not False:
+                    mjds = sn.log_transform_time(mjds, phase_start=log_transform)
                 ax.errorbar(mjds, mags, yerr=errs, fmt='o', color='k')
             
             plt.gca().invert_yaxis()
@@ -445,7 +459,7 @@ class GP3D(GP):
         return phases, wl_grid, mags, err_grid
 
 
-    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False):
+    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False, plot=False):
 
         all_phases, all_wls, all_mags, all_errs = [], [], [], []
 
@@ -457,12 +471,58 @@ class GP3D(GP):
             all_mags = np.concatenate((all_mags, mags.flatten()))
             all_errs = np.concatenate((all_errs, err_grid.flatten()))
 
+        ### Create the template grid from the observations
+
+        if log_transform is not False:
+            phase_grid_linear = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
+            phase_grid = np.log(phase_grid_linear + log_transform) # Grid of phases in log space
+        else:
+            phase_grid = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
+        
+        wl_grid = np.arange(min([self.wle[f] for f in filtlist])-500, max([self.wle[f] for f in filtlist])+500, 100) # Grid of wavelengths to iterate over, by 100 A
+        grid = np.zeros((len(phase_grid), len(wl_grid)))
+        err_grid = np.copy(grid)
+
+        for i in range(len(phase_grid)):
+            for j in range(len(grid[i,:])):
+
+                ### Get all data that falls within this phase + 5 days, and this wl +- 100 A
+                if log_transform is not False:
+                    inds = np.where((np.exp(all_phases) - np.exp(phase_grid[i]) <= 5.0) & (np.exp(all_phases) - np.exp(phase_grid[i]) > 0.0) & (abs(all_wls - wl_grid[j]) < 100))[0]
+                else:
+                    inds = np.where((all_phases - phase_grid[i] <= 5.0) & (all_phases - phase_grid[i] > 0.0) & (abs(all_wls - wl_grid[j]) < 100))[0]
+                
+                if len(inds) == 0:
+                    continue
+                
+                median_mag = np.median(all_mags[inds])
+                iqr = np.subtract(*np.percentile(all_mags[inds], [75, 25]))
+                
+                grid[i,j] = median_mag
+                err_grid[i,j] = iqr
+
+        if plot:
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            
+            if log_transform is not False:
+                X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, wl_grid)
+            else:
+                X, Y = np.meshgrid(phase_grid, wl_grid)
+
+            Z = grid.T
+
+            ax.plot_surface(X, Y, Z)
+            plt.show()
+        
+        ### Subtract off templates for each SN LC set
+
         return all_phases, all_wls, all_mags, all_errs
 
 
-    def run_gp(self, filtlist, phasemin, phasemax, test_size, log_transform=False):
+    def run_gp(self, filtlist, phasemin, phasemax, test_size, plot=False, log_transform=False):
 
-        all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform)
+        all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=plot)
         x = np.vstack((all_phases, all_wls)).T
         y = all_mags
         err = all_errs
@@ -483,7 +543,7 @@ class GP3D(GP):
 
     def predict_gp(self, filtlist, phasemin, phasemax, test_size, plot=False, log_transform=False):
 
-        gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test = self.run_gp(filtlist, phasemin, phasemax, test_size, log_transform=log_transform)
+        gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test = self.run_gp(filtlist, phasemin, phasemax, test_size, plot=plot, log_transform=log_transform)
 
         if plot:
             fig, ax = plt.subplots()
@@ -512,12 +572,3 @@ class GP3D(GP):
             ax.set_ylabel('Normalized Magnitude')
             plt.legend()
             plt.show()
-
-
-
-# kernel = RBFKernel([np.log(10.0), 500.0], (0.1, 2.0e3)).kernel + WhiteNoiseKernel(1., (1e-10, 10.)).kernel
-# #kernel = Matern([10.0, 500.0], (1., 2.0e3), 2.5)
-# gp = GP3D('SNII', 'SNIIP', kernel)
-# gp.predict_gp(['UVW2', 'UVM2', 'UVW1', 'U', 'B', 'V'], -20, 50, 0.9, plot=True, log_transform=30)
-
-# print(gp.gaussian_process.kernel_)
