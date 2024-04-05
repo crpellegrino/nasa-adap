@@ -21,18 +21,42 @@ class SN:
     base_path = '../data/'
 
 
-    def __init__(self, classification, subtype, name):
+    def __init__(self, classification, subtype, name, info_file=False, shifted_data=False):
 
         self.classification = classification
         self.subtype  = subtype
         self.name = name
         self.data = {}
-        self.peak_mjd = 0
-        self.peak_mag = 0
+        self.info = {}
+        self.shifted_data = {}
+
+        if info_file:
+            self.read_info_file()
+
+        if shifted_data:
+            self.load_shifted_data()
 
 
     def __repr__(self):
         return self.name
+
+
+    def write_info_file(self):
+
+        with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json'), 'w+') as f:
+            json.dump(self.info, f, indent=4)
+
+
+    def read_info_file(self):
+
+        if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json')):
+            print('Could not load info file')
+
+        else:
+            with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json'), 'r') as f:
+                info_dict = json.load(f)
+
+            self.info = info_dict
 
     
     def load_swift_data(self):
@@ -59,13 +83,35 @@ class SN:
         dirfiles = os.listdir(os.path.join(self.base_path, self.classification, self.subtype, self.name))
 
         for f in dirfiles:
-            if '.json' in f:
+            ### Trying to filter out info file and shifted data file, should do this better
+            if '.json' in f and '_info.json' not in f and '_shifted_data.json' not in f: 
                 # print('Working with ', f)
                 with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, f), 'r') as jsonf:
                     d = json.load(jsonf)
 
                 for filt, mag_list in d.items():
                     self.data.setdefault(filt, []).extend([mag for mag in mag_list if mag['err'] < 9999])
+
+
+    def write_shifted_data(self):
+
+        with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_shifted_data.json'), 'w+') as f:
+            json.dump(self.shifted_data, f, indent=4)
+    
+
+    def load_shifted_data(self):
+
+        ### Load shifted data that has been saved to a file
+
+        if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_shifted_data.json')):
+            print('Could not load shifted data file')
+
+        else:
+
+            with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_shifted_data.json'), 'r') as f:
+                shifted_data = json.load(f)
+
+            self.shifted_data = shifted_data
 
 
     def plot_data(self, only_this_filt='', shift=False):
@@ -94,8 +140,8 @@ class SN:
                 errs = np.asarray([phot['err'] for phot in mag_list])
 
                 if shift:
-                    mjds -= self.peak_mjd
-                    mags -= self.peak_mag
+                    mjds -= self.info['peak_mjd']
+                    mags -= self.info['peak_mag']
 
                 ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
 
@@ -171,9 +217,9 @@ class SN:
             plt.gca().invert_yaxis()
             plt.show()
 
-        self.peak_mjd = mean(peak_mjds)
-        self.peak_mag = mean(peak_mags)
-        self.peak_filt = filt
+        self.info['peak_mjd'] = mean(peak_mjds)
+        self.info['peak_mag'] = mean(peak_mags)
+        self.info['peak_filt'] = filt
 
         return mean(peak_mjds), mean(peak_mags)
 
@@ -188,7 +234,7 @@ class SN:
             return [], [], []
 
 
-        if not self.peak_mjd > 0 and not self.peak_mag > 0:
+        if not self.info.get('peak_mjd') and not self.info.get('peak_mag'):
 
             peak_mjd, peak_mag = self.fit_for_max(filt, shift_array=shift_array, plot=plot)
             while not peak_mjd:
@@ -201,13 +247,16 @@ class SN:
                     print('Reached last filter and could not fit for peak')
                     break
         
-        if not self.peak_mag > 0:
+        if not self.info['peak_mag'] > 0:
             return [], [], []
 
-        mjds = np.asarray([phot['mjd'] for phot in self.data[filt]]) - self.peak_mjd
-        mags = np.asarray([phot['mag'] for phot in self.data[filt]]) - self.peak_mag
+        mjds = np.asarray([phot['mjd'] for phot in self.data[filt]]) - self.info['peak_mjd']
+        mags = np.asarray([phot['mag'] for phot in self.data[filt]]) - self.info['peak_mag']
         errs = np.asarray([phot['err'] for phot in self.data[filt]])
 
+        self.shifted_data.setdefault(filt, []).extend(
+            [{'mjd': mjds[i], 'mag': mags[i], 'err': errs[i]} for i in range(len(mjds))]
+        )
         return mjds, mags, errs
 
 
