@@ -131,17 +131,18 @@ class SN:
         'o': 'salmon',
         }
 
-        for filt, mag_list in self.data.items():
+        if shift:
+            data_to_plot = self.shifted_data
+        else:
+            data_to_plot = self.data
+
+        for filt, mag_list in data_to_plot.items():
             if only_this_filt and only_this_filt != filt:
                 continue
             else:
                 mjds = np.asarray([phot['mjd'] for phot in mag_list])
                 mags = np.asarray([phot['mag'] for phot in mag_list])
                 errs = np.asarray([phot['err'] for phot in mag_list])
-
-                if shift:
-                    mjds -= self.info['peak_mjd']
-                    mags -= self.info['peak_mag']
 
                 ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
 
@@ -247,7 +248,7 @@ class SN:
                     print('Reached last filter and could not fit for peak')
                     break
         
-        if not self.info['peak_mag'] > 0:
+        if not self.info.get('peak_mag', 0) > 0:
             return [], [], []
 
         mjds = np.asarray([phot['mjd'] for phot in self.data[filt]]) - self.info['peak_mjd']
@@ -263,42 +264,20 @@ class SN:
     def log_transform_time(self, phases, phase_start=30):
 
         return np.log(phases + phase_start)
+    
 
-
-class Type:
+class SNCollection:
 
     """
-    A Type object, building a collection of all SNe of a given type (classification)
+    A SNCollection object, which holds an arbitrary number of SNe
+    
     """
     base_path = '../data/'
-    sne = {}
-    subtypes = []
 
 
-    def __init__(self, classification):
-        
-        self.classification = classification
-
-        self.get_subtypes()
-        self.build_object_list()
-
-
-    def get_subtypes(self):
-
-        for d in os.listdir(os.path.join(self.base_path, self.classification)):
-            if os.path.isdir(os.path.join(self.base_path, self.classification, d)):
-                self.subtypes.append(d)
-
-
-    def build_object_list(self):
-    
-        for subtype in self.subtypes:
-            self.sne[subtype] = []
-            for name in os.listdir(os.path.join(self.base_path, self.classification, subtype)):
-                if os.path.isdir(os.path.join(self.base_path, self.classification, subtype, name)):
-                    sn = SN(classification=self.classification, subtype=subtype, name=name)
-
-                    self.sne[subtype].append(sn)
+    def __init__(self, **kwargs):
+        self.sne = kwargs
+        self.subtypes = list(kwargs.keys())
 
 
     def plot_all_lcs(self, filt, subtypes='all', log_transform=False):
@@ -330,6 +309,40 @@ class Type:
             plt.gca().invert_yaxis()
             plt.title('{} + {}'.format(subtype, filt))
             plt.show()
+
+
+class Type(SNCollection):
+
+    """
+    A Type object, building a collection of all SNe of a given type (classification)
+    """
+    subtypes = []
+    sne = {}
+
+    def __init__(self, classification):
+        
+        self.classification = classification
+
+        self.get_subtypes()
+        self.build_object_list()
+
+
+    def get_subtypes(self):
+
+        for d in os.listdir(os.path.join(self.base_path, self.classification)):
+            if os.path.isdir(os.path.join(self.base_path, self.classification, d)):
+                self.subtypes.append(d)
+
+
+    def build_object_list(self):
+    
+        for subtype in self.subtypes:
+            self.sne[subtype] = []
+            for name in os.listdir(os.path.join(self.base_path, self.classification, subtype)):
+                if os.path.isdir(os.path.join(self.base_path, self.classification, subtype, name)):
+                    sn = SN(classification=self.classification, subtype=subtype, name=name)
+
+                    self.sne[subtype].append(sn)
         
 
 class Fitter:
@@ -338,11 +351,9 @@ class Fitter:
     A Fitter object, fitting the light curves of a class (Type) of supernovae
     """
     
-    def __init__(self, classification):
+    def __init__(self, collection):
 
-        self.classification = classification
-        self.type = Type(classification)
-        self.type.build_object_list()
+        self.collection = collection
 
 
 class RBFKernel:
@@ -387,8 +398,8 @@ class GP(Fitter):
     GP fit to a single band
     """
 
-    def __init__(self, classification, subtype, kernel):
-        super().__init__(classification)
+    def __init__(self, collection, subtype, kernel):
+        super().__init__(collection)
         self.subtype = subtype
         self.kernel = kernel
 
@@ -396,7 +407,7 @@ class GP(Fitter):
     def process_dataset_for_gp(self, filt, phasemin, phasemax, log_transform=False):
         phases, mags, errs = np.asarray([]), np.asarray([]), np.asarray([])
 
-        for sn in self.type.sne[self.subtype]:
+        for sn in self.collection.sne[self.subtype]:
 
             shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             if len(shifted_mjd) == 0:
@@ -619,7 +630,7 @@ class GP3D(GP):
             ax.invert_yaxis()
             ax.set_xlabel('Normalized Time [days]')
             ax.set_ylabel('Normalized Magnitude')
-            plt.suptitle('Classification: {}'.format(self.classification))
+            #plt.suptitle('Classification: {}'.format(self.classification))
             ax.set_title('SubType: {}'.format(self.subtype))
             plt.legend()
             plt.show()
