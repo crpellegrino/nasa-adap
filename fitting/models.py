@@ -9,7 +9,65 @@ from sklearn.model_selection import train_test_split
 from statistics import mean, stdev
 import warnings
 
+from typing import Union, Optional
+
+
 warnings.filterwarnings('ignore')
+
+class CAAT:
+
+    def __init__(self):
+        #This might need to be replaced long term with some configuration parameters/config file    
+        base_path = '../data/'
+        base_db_name = 'caat.csv'
+        db_loc = base_path + base_db_name
+
+        if(os.path.isfile(db_loc)):
+            #Chech to see if db file exists 
+            self.caat=pd.read_csv(db_loc)
+        else:
+            raise Warning("No db file found")
+    
+    @staticmethod
+    def create_db_file(type_list = None):
+        #This might need to be replaced long term with some configuration parameters/config file    
+        base_path = '../data/'
+        base_db_name = 'caat.csv'
+        db_loc = base_path + base_db_name
+
+        #Create A List Of Folders To Parse
+        if type_list is None:
+            type_list = ["SESNE", "SLSN-I", "SLSN-II", "SNII", "SNIIn"]
+
+        sndb_name = []
+        sndb_type = []
+        sndb_subtype = []
+        #etc
+        for sntype in type_list:
+            """ For each folder:
+            get a list of subfolders
+            get a list of objects in each folder
+            assign SN, subtypes to list
+            """
+            subtypes = os.listdir(base_path+sntype+"/")
+            for snsubtype in subtypes:
+                sn_names = os.listdir(base_path+sntype+"/"+snsubtype+"/")
+
+                sndb_name.extend(sn_names)
+                sndb_type.extend([sntype] * len(sn_names))
+                sndb_subtype.extend([snsubtype] * len(sn_names))
+
+        sndb = pd.DataFrame({"Name": sndb_name, "Type": sndb_type, "subtype": sndb_subtype})
+        sndb.to_csv(db_loc)
+    
+    @property
+    def db(self):
+        return self.caat
+
+    def get_list_of_SNe(self, Type = None,
+                            Year = None):#etc, other filter parameters - # of dete tions in filer/wavelength regime?
+        #parse the pandas db
+        raise NotImplementedError
 
 
 class SN:
@@ -275,10 +333,31 @@ class SNCollection:
     base_path = '../data/'
 
 
-    def __init__(self, **kwargs):
-        self.sne = kwargs
+    def __init__(self, names: Union[str, None] = None, 
+                 Type: Union[str, None] = None, 
+                 SNe: Union[list[SN], None] = None,
+                **kwargs):
+        
         self.subtypes = list(kwargs.keys())
+        
+        if(isinstance(SNe, SN)):
+            self.sne = SNe
+        else:
+            if(isinstance(names, str)):
+                self.sne = [SN(name) for name in names]
+            else:
+                if(type(Type) is not None):
+                    type_list = CAAT.get_list_of_SNe(Type=Type)
+                    self.sne = [SN(name) for name in type_list]
+                    self.type=Type
 
+    def __repr__(self):
+        print("Collection of SN Objects")
+        return self.sne
+
+    def get_type_list(self):
+        #Maybe this lives in a separate class that handles the csv db file
+        raise NotImplementedError
 
     def plot_all_lcs(self, filt, subtypes='all', log_transform=False):
 
