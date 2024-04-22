@@ -72,7 +72,7 @@ class CAAT:
 
 class SN:
     """
-    A Supernova object, taking a classification (i.e. SN II, SESN, FBOT, etc.),
+    A Supernova object, taking a classification (i.e. SN II, SESNe, FBOT, etc.),
     a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko)
     """
 
@@ -136,7 +136,6 @@ class SN:
 
     
     def load_swift_data(self):
-
         ### Load the Swift data for this object
         if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_uvotB15.1.dat')):
             print('No Swift file for ', self.name)
@@ -191,8 +190,11 @@ class SN:
             self.shifted_data = shifted_data
 
 
-    def plot_data(self, only_this_filt='', shift=False):
-
+    def plot_data(self, filts_to_plot=['all'], shifted_data_exists=False, view_shifted_data=False):
+        if not self.data: # check if data/SN has not been previously read in/initialized
+            self.load_swift_data()
+            self.load_json_data()
+        
         fig, ax = plt.subplots()
 
         colors = {'U': 'purple',
@@ -208,25 +210,33 @@ class SN:
         'o': 'salmon',
         }
 
-        if shift:
+        if filts_to_plot[0] == 'all': # if individual filters not specified, plot all by default
+            filts_to_plot = colors.keys()
+
+        if shifted_data_exists:
+            data_to_plot = self.shifted_data
+        elif view_shifted_data:
+            for f in filts_to_plot:
+                self.shift_to_max(f)
             data_to_plot = self.shifted_data
         else:
             data_to_plot = self.data
+        
+        for f in filts_to_plot:
+            for filt, mag_list in data_to_plot.items():
+                if f and f != filt:
+                    continue
+                else:
+                    mjds = np.asarray([phot['mjd'] for phot in mag_list])
+                    mags = np.asarray([phot['mag'] for phot in mag_list])
+                    errs = np.asarray([phot['err'] for phot in mag_list])
 
-        for filt, mag_list in data_to_plot.items():
-            if only_this_filt and only_this_filt != filt:
-                continue
-            else:
-                mjds = np.asarray([phot['mjd'] for phot in mag_list])
-                mags = np.asarray([phot['mag'] for phot in mag_list])
-                errs = np.asarray([phot['err'] for phot in mag_list])
-
-                ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
+                    ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
 
         plt.gca().invert_yaxis()
         plt.legend()
         plt.xlabel('MJD')
-        plt.ylabel('Apparent magnitude')
+        plt.ylabel('Apparent Magnitude')
         plt.minorticks_on()
         plt.show()
 
