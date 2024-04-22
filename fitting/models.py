@@ -21,20 +21,37 @@ class SN:
     base_path = '../data/'
 
 
-    def __init__(self, classification, subtype, name, info_file=False, shifted_data=False):
+    def __init__(self, name: str = None, data: dict = None):
 
-        self.classification = classification
-        self.subtype  = subtype
-        self.name = name
-        self.data = {}
-        self.info = {}
-        self.shifted_data = {}
+        if isinstance(name, str):
+            self.name = name
+            self.data = {}
 
-        if info_file:
+            found = False
+            for typ in os.listdir(self.base_path):
+                if os.path.isdir(os.path.join(self.base_path, typ)):
+                    for subtyp in os.listdir(os.path.join(self.base_path, typ)):
+                        if os.path.isdir(os.path.join(self.base_path, typ, subtyp)):
+                            for snname in os.listdir(os.path.join(self.base_path, typ, subtyp)):
+                                if name == snname:
+                                    self.classification = typ
+                                    self.subtype  = subtyp
+                                    found = True
+
+            if not found:
+                print('No SN by that name found in our archives')
+                raise Exception
+            
             self.read_info_file()
-
-        if shifted_data:
             self.load_shifted_data()
+
+        if isinstance(data, dict):
+            self.name = ''
+            self.classification = ''
+            self.subtype = ''
+            self.data = data
+            self.info = {}
+            self.shifted_data = {}
 
 
     def __repr__(self):
@@ -51,6 +68,7 @@ class SN:
 
         if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json')):
             print('Could not load info file')
+            self.info = {}
 
         else:
             with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json'), 'r') as f:
@@ -105,6 +123,7 @@ class SN:
 
         if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_shifted_data.json')):
             print('Could not load shifted data file')
+            self.shifted_data = {}
 
         else:
 
@@ -311,7 +330,7 @@ class SNCollection:
             plt.show()
 
 
-class Type(SNCollection):
+class SNType(SNCollection):
 
     """
     A Type object, building a collection of all SNe of a given type (classification)
