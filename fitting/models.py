@@ -8,6 +8,7 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel, Matern
 from sklearn.model_selection import train_test_split
 from statistics import mean, stdev
 import warnings
+from scipy.signal import savgol_filter
 
 from typing import Union, Optional
 
@@ -409,8 +410,6 @@ class SNCollection:
         if 'all' in subtypes:
             subtypes = self.subtypes
 
-        print(subtypes)
-
         for subtype in subtypes:
 
             fig, ax = plt.subplots()
@@ -572,7 +571,6 @@ class GP(Fitter):
             err_grid[ind] = std_mag
 
         ### Run the GP
-        #kernel = 1 * RBF(length_scale=10.0, length_scale_bounds=(1.0, 1e2)) + WhiteKernel(noise_level=1., noise_level_bounds=(1e-10, 10.))
         gaussian_process = GaussianProcessRegressor(
             kernel=self.kernel, alpha=err_grid, n_restarts_optimizer=9
         )
@@ -641,7 +639,7 @@ class GP3D(GP):
         return phases, wl_grid, mags, err_grid
 
 
-    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False, plot=False):
+    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False, plot=False, fit_residuals=True):
 
         all_phases, all_wls, all_mags, all_errs = [], [], [], []
 
@@ -652,6 +650,9 @@ class GP3D(GP):
             all_wls = np.concatenate((all_wls, wl_grid.flatten()))
             all_mags = np.concatenate((all_mags, mags.flatten()))
             all_errs = np.concatenate((all_errs, err_grid.flatten()))
+
+        if not fit_residuals:
+            return all_phases, all_wls, all_mags, all_errs
 
         ### Create the template grid from the observations
 
@@ -683,6 +684,8 @@ class GP3D(GP):
                 grid[i,j] = median_mag
                 err_grid[i,j] = iqr
 
+        grid = savgol_filter(grid, 171, 3, axis=0)
+
         if plot:
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
@@ -698,8 +701,36 @@ class GP3D(GP):
             plt.show()
         
         ### Subtract off templates for each SN LC set
+        phase_residuals, wl_residuals, mag_residuals, err_residuals = [], [], [], []
+        for filt in filtlist:
+            for sn in self.type.sne[self.subtype]:
 
-        return all_phases, all_wls, all_mags, all_errs
+                shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
+                if len(shifted_mjd) == 0:
+                    continue
+                if log_transform is not False:
+                    shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
+
+                if log_transform is not False:
+                    inds_to_fit = np.where((shifted_mjd > np.log(phasemin+log_transform)) & (shifted_mjd < np.log(phasemax+log_transform)))[0]
+                else:
+                    inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
+
+                phases = shifted_mjd[inds_to_fit]
+                mags = shifted_mag[inds_to_fit]
+                errs = err[inds_to_fit]
+            
+                wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
+                for i, phase in enumerate(phases):
+                    phase_inds = np.where((abs(phase_grid - phase) <= 1./24))[0]
+                    
+                    phase_residuals.append(phase)
+                    wl_residuals.append(self.wle[filt])
+                    mag_residuals.append(mags[i] - grid[phase_inds[0], wl_inds[0]])
+                    err_residuals.append(np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2))
+
+        return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
+        #return all_phases, all_wls, all_mags, all_errs
 
 
     def run_gp(self, filtlist, phasemin, phasemax, test_size, plot=False, log_transform=False):
@@ -712,9 +743,8 @@ class GP3D(GP):
         X_train, X_test, Y_train, Y_test, Z_train, Z_test = train_test_split(x, y, err, test_size=test_size)
     
         ### Run the GP
-        #kernel = 1 * RBF(length_scale=[10.0, 500.0], length_scale_bounds=(1.0, 2e3)) + WhiteKernel(noise_level=1., noise_level_bounds=(1e-10, 10.))
         gaussian_process = GaussianProcessRegressor(
-            kernel=self.kernel, alpha=Z_train, n_restarts_optimizer=10, normalize_y=True
+            kernel=self.kernel, alpha=Z_train, n_restarts_optimizer=10
         )
         gaussian_process.fit(X_train, Y_train)
         
