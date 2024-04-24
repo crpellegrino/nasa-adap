@@ -28,6 +28,11 @@ class CAAT:
         else:
             raise Warning("No db file found")
     
+    def get_sne_by_type(self, sntype, snsubtype):
+        sne_list = (self.caat["Type"] == sntype) & (self.caat["subtype"] == snsubtype)
+        return self.caat[sne_list].Name.values
+            
+        
     @staticmethod
     def create_db_file(type_list = None):
         #This might need to be replaced long term with some configuration parameters/config file    
@@ -363,7 +368,8 @@ class SNCollection:
 
 
     def __init__(self, names: Union[str, None] = None, 
-                 Type: Union[str, None] = None, 
+                 sntype: Union[str, None] = None, 
+                 snsubtype: Union[str, None] = None, 
                  SNe: Union[list[SN], None] = None,
                 **kwargs):
         
@@ -375,15 +381,22 @@ class SNCollection:
             if(isinstance(names, str)):
                 self.sne = [SN(name) for name in names]
             else:
-                if(type(Type) is not None):
-                    type_list = CAAT.get_list_of_SNe(Type=Type)
+                if(type(sntype) is not None):
+                    #convert this to a logger statement
+                    print(f"Loading SN Type: {sntype}, Subtype: {snsubtype}")
+                    caat = CAAT()
+                    type_list = caat.get_sne_by_type(sntype, snsubtype)
                     self.sne = [SN(name) for name in type_list]
-                    self.type=Type
+                    self.type=sntype
 
     def __repr__(self):
         print("Collection of SN Objects")
         return self.sne
 
+    #@property
+    #def sne(self):
+    #    return self.sne
+    
     def get_type_list(self):
         #Maybe this lives in a separate class that handles the csv db file
         raise NotImplementedError
@@ -460,7 +473,8 @@ class Fitter:
     """
     
     def __init__(self, collection):
-
+        # collection long term could be a indinividual SN or a SNCollection, 
+        # make sure this works at some point
         self.collection = collection
 
 
@@ -506,16 +520,16 @@ class GP(Fitter):
     GP fit to a single band
     """
 
-    def __init__(self, collection, subtype, kernel):
-        super().__init__(collection)
-        self.subtype = subtype
+    def __init__(self, sne_collection, kernel):
+        super().__init__(sne_collection)
         self.kernel = kernel
+ 
 
 
     def process_dataset_for_gp(self, filt, phasemin, phasemax, log_transform=False):
         phases, mags, errs = np.asarray([]), np.asarray([]), np.asarray([])
 
-        for sn in self.collection.sne[self.subtype]:
+        for sn in self.collection.sne:
 
             shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             if len(shifted_mjd) == 0:
@@ -739,7 +753,7 @@ class GP3D(GP):
             ax.set_xlabel('Normalized Time [days]')
             ax.set_ylabel('Normalized Magnitude')
             #plt.suptitle('Classification: {}'.format(self.classification))
-            ax.set_title('SubType: {}'.format(self.subtype))
+            ax.set_title('SubType: {}'.format(self.collection[0].subtype))
             plt.legend()
             plt.show()
 
