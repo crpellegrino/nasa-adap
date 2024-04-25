@@ -27,10 +27,10 @@ class CAAT:
             #Chech to see if db file exists 
             self.caat=pd.read_csv(db_loc)
         else:
-            raise Warning("No db file found")
+            raise Warning("No database file found")
     
     def get_sne_by_type(self, sntype, snsubtype):
-        sne_list = (self.caat["Type"] == sntype) & (self.caat["subtype"] == snsubtype)
+        sne_list = (self.caat["Type"] == sntype) & (self.caat["Subtype"] == snsubtype)
         return self.caat[sne_list].Name.values
             
         
@@ -63,15 +63,15 @@ class CAAT:
                 sndb_type.extend([sntype] * len(sn_names))
                 sndb_subtype.extend([snsubtype] * len(sn_names))
 
-        sndb = pd.DataFrame({"Name": sndb_name, "Type": sndb_type, "subtype": sndb_subtype})
-        sndb.to_csv(db_loc)
+        sndb = pd.DataFrame({"Name": sndb_name, "Type": sndb_type, "Subtype": sndb_subtype})
+        sndb.to_csv(db_loc, index=False)
     
     @property
     def db(self):
         return self.caat
 
     def get_list_of_SNe(self, Type = None,
-                            Year = None):#etc, other filter parameters - # of dete tions in filer/wavelength regime?
+                            Year = None):#etc, other filter parameters - # of detections in filer/wavelength regime?
         #parse the pandas db
         raise NotImplementedError
 
@@ -103,8 +103,7 @@ class SN:
                                     found = True
 
             if not found:
-                print('No SN by that name found in our archives')
-                raise Exception
+                raise Exception('No SN by that name found in our archives')
             
             self.read_info_file()
             self.load_shifted_data()
@@ -243,6 +242,7 @@ class SN:
         plt.legend()
         plt.xlabel('MJD')
         plt.ylabel('Apparent Magnitude')
+        plt.title(self.name)
         plt.minorticks_on()
         plt.show()
 
@@ -304,11 +304,16 @@ class SN:
 
         if plot:
             plt.errorbar(mjd_array, mag_array, yerr=err_array, fmt='o', color='black')
-            plt.errorbar(fit_mjds, fit_mags, yerr=fit_errs, fmt='o', color='blue')
-            plt.errorbar(mean(peak_mjds), mean(peak_mags), xerr=stdev(peak_mjds), yerr=stdev(peak_mags), color='red', fmt='o')
-            #plt.xlim(guess_mjd_max-10, guess_mjd_max+10)
-            #plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
+            plt.errorbar(fit_mjds, fit_mags, yerr=fit_errs, fmt='o', color='blue', label='Used in Fitting')
+            plt.errorbar(mean(peak_mjds), mean(peak_mags), xerr=stdev(peak_mjds), yerr=stdev(peak_mags), color='red', fmt='o', label='Best Fit Peak')
+            plt.xlim(guess_mjd_max-10, guess_mjd_max+10)
+            plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
+            plt.xlabel('MJD')
+            plt.ylabel('Apparent Magnitude')
+            plt.title(self.name)
+            plt.legend()
             plt.gca().invert_yaxis()
+
             plt.show()
 
         self.info['peak_mjd'] = mean(peak_mjds)
@@ -330,12 +335,12 @@ class SN:
 
         if not self.info.get('peak_mjd') and not self.info.get('peak_mag'):
 
-            peak_mjd, peak_mag = self.fit_for_max(filt, shift_array=shift_array, plot=plot)
+            peak_mjd, peak_mag = self.fit_for_max(filt, shift_array=shift_array)
             while not peak_mjd:
                 # Fitting didn't work, try another filter
                 for newfilt in ['V', 'g', 'c', 'B', 'r', 'o', 'U', 'i', 'UVW1']:
                     if newfilt in self.data.keys() and newfilt != filt:
-                        peak_mjd, peak_mag = self.fit_for_max(newfilt, shift_array=shift_array, plot=plot)
+                        peak_mjd, peak_mag = self.fit_for_max(newfilt, shift_array=shift_array)
             
                 if newfilt == 'UVW1' and not peak_mjd:
                     print('Reached last filter and could not fit for peak')
@@ -347,6 +352,16 @@ class SN:
         mjds = np.asarray([phot['mjd'] for phot in self.data[filt]]) - self.info['peak_mjd']
         mags = np.asarray([phot['mag'] for phot in self.data[filt]]) - self.info['peak_mag']
         errs = np.asarray([phot['err'] for phot in self.data[filt]])
+
+        if plot:
+            plt.errorbar(mjds, mags, yerr=errs, fmt='o', color='black', label=filt+'-band')
+            plt.xlabel('Shifted Time [days]')
+            plt.ylabel('Shifted Magnitude')
+            plt.title(self.name+'-Shifted Data')
+            plt.legend()
+            plt.gca().invert_yaxis()
+
+            plt.show()
 
         self.shifted_data.setdefault(filt, []).extend(
             [{'mjd': mjds[i], 'mag': mags[i], 'err': errs[i]} for i in range(len(mjds))]
@@ -698,6 +713,7 @@ class GP3D(GP):
             Z = grid.T
 
             ax.plot_surface(X, Y, Z)
+            # ADD AXES LABELS HERE
             plt.show()
         
         ### Subtract off templates for each SN LC set
@@ -777,6 +793,7 @@ class GP3D(GP):
                         test_prediction + 1.96*std_prediction,
                         alpha=0.2,
                 )
+                # ADD OPTION TO DISPLAY DATA POITNS USED ?
 
         if plot:
             ax.invert_yaxis()
