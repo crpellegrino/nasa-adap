@@ -15,6 +15,20 @@ from typing import Union, Optional
 
 warnings.filterwarnings('ignore')
 
+
+colors = {'U': 'purple',
+    'B': 'blue',
+    'V': 'lime',
+    'g': 'cyan',
+    'r': 'orange',
+    'i': 'red',
+    'UVW2': '#FE0683',
+    'UVM2': '#BF01BC',
+    'UVW1': '#8B06FF',
+    'c': 'turquoise',
+    'o': 'salmon',
+}
+
 class CAAT:
 
     def __init__(self):
@@ -29,8 +43,12 @@ class CAAT:
         else:
             raise Warning("No database file found")
     
-    def get_sne_by_type(self, sntype, snsubtype):
-        sne_list = (self.caat["Type"] == sntype) & (self.caat["Subtype"] == snsubtype)
+
+    def get_sne_by_type(self, sntype, snsubtype=None):
+        if snsubtype is not None:
+            sne_list = (self.caat["Type"] == sntype) & (self.caat["Subtype"] == snsubtype)
+        else:
+            sne_list = self.caat["Type"] == sntype
         return self.caat[sne_list].Name.values
             
         
@@ -103,7 +121,7 @@ class SN:
                                     found = True
 
             if not found:
-                raise Exception('No SN by that name found in our archives')
+                raise Exception(f'No SN named {name} found in our archives')
             
             self.read_info_file()
             self.load_shifted_data()
@@ -130,7 +148,6 @@ class SN:
     def read_info_file(self):
 
         if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json')):
-            print('Could not load info file')
             self.info = {}
 
         else:
@@ -184,7 +201,6 @@ class SN:
         ### Load shifted data that has been saved to a file
 
         if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_shifted_data.json')):
-            print('Could not load shifted data file')
             self.shifted_data = {}
 
         else:
@@ -201,19 +217,6 @@ class SN:
             self.load_json_data()
         
         fig, ax = plt.subplots()
-
-        colors = {'U': 'purple',
-        'B': 'blue',
-        'V': 'lime',
-        'g': 'cyan',
-        'r': 'orange',
-        'i': 'red',
-        'UVW2': '#FE0683',
-        'UVM2': '#BF01BC',
-        'UVW1': '#8B06FF',
-        'c': 'turquoise',
-        'o': 'salmon',
-        }
 
         if filts_to_plot[0] == 'all': # if individual filters not specified, plot all by default
             filts_to_plot = colors.keys()
@@ -332,7 +335,6 @@ class SN:
         if filt not in self.data.keys():
             return [], [], []
 
-
         if not self.info.get('peak_mjd') and not self.info.get('peak_mag'):
 
             peak_mjd, peak_mag = self.fit_for_max(filt, shift_array=shift_array)
@@ -394,7 +396,7 @@ class SNCollection:
         if(isinstance(SNe, SN)):
             self.sne = SNe
         else:
-            if(isinstance(names, str)):
+            if(isinstance(names, list)):
                 self.sne = [SN(name) for name in names]
             else:
                 if(type(sntype) is not None):
@@ -402,6 +404,7 @@ class SNCollection:
                     print(f"Loading SN Type: {sntype}, Subtype: {snsubtype}")
                     caat = CAAT()
                     type_list = caat.get_sne_by_type(sntype, snsubtype)
+                    print(type_list)
                     self.sne = [SN(name) for name in type_list]
                     self.type=sntype
 
@@ -452,7 +455,7 @@ class SNType(SNCollection):
     A Type object, building a collection of all SNe of a given type (classification)
     """
     subtypes = []
-    sne = {}
+    sne = []
 
     def __init__(self, classification):
         
@@ -464,20 +467,26 @@ class SNType(SNCollection):
 
     def get_subtypes(self):
 
-        for d in os.listdir(os.path.join(self.base_path, self.classification)):
-            if os.path.isdir(os.path.join(self.base_path, self.classification, d)):
-                self.subtypes.append(d)
+        # for d in os.listdir(os.path.join(self.base_path, self.classification)):
+        #     if os.path.isdir(os.path.join(self.base_path, self.classification, d)):
+        #         self.subtypes.append(d)
+        caat = CAAT()
+        subtype_list = (caat.caat["Type"] == self.classification)
+        self.subtypes = list(set(caat.caat[subtype_list].subtype.values))
 
 
     def build_object_list(self):
     
-        for subtype in self.subtypes:
-            self.sne[subtype] = []
-            for name in os.listdir(os.path.join(self.base_path, self.classification, subtype)):
-                if os.path.isdir(os.path.join(self.base_path, self.classification, subtype, name)):
-                    sn = SN(classification=self.classification, subtype=subtype, name=name)
+        # for subtype in self.subtypes:
+        #     self.sne[subtype] = []
+        #     for name in os.listdir(os.path.join(self.base_path, self.classification, subtype)):
+        #         if os.path.isdir(os.path.join(self.base_path, self.classification, subtype, name)):
+        #             sn = SN(name=name)
 
-                    self.sne[subtype].append(sn)
+        #             self.sne[subtype].append(sn)
+        caat = CAAT()
+        type_list = caat.get_sne_by_type(self.classification)
+        self.sne = [SN(name) for name in type_list]
         
 
 class Fitter:
@@ -540,10 +549,17 @@ class GP(Fitter):
  
 
 
-    def process_dataset_for_gp(self, filt, phasemin, phasemax, log_transform=False):
+    def process_dataset_for_gp(self, filt, phasemin, phasemax, log_transform=False, sn_set=None):
         phases, mags, errs = np.asarray([]), np.asarray([]), np.asarray([])
 
-        for sn in self.collection.sne:
+        if sn_set is None:
+            sn_set = self.collection.sne
+
+        for sn in sn_set:
+
+            if len(sn.data) == 0:
+                sn.load_swift_data()
+                sn.load_json_data()
 
             shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             if len(shifted_mjd) == 0:
@@ -627,9 +643,9 @@ class GP3D(GP):
            'W': 33526, 'Q': 46028
     }
 
-    def build_samples_3d(self, filt, phasemin, phasemax, log_transform=False):
+    def build_samples_3d(self, filt, phasemin, phasemax, log_transform=False, sn_set=None):
 
-        phases, mags, errs = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform)
+        phases, mags, errs = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform, sn_set=sn_set)
 
         min_phase, max_phase = sorted(phases)[0], sorted(phases)[-1]
         phase_grid = np.linspace(min_phase, max_phase, len(phases))
@@ -654,7 +670,7 @@ class GP3D(GP):
         return phases, wl_grid, mags, err_grid
 
 
-    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False, plot=False, fit_residuals=True):
+    def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False, plot=False, fit_residuals=False, set_to_normalize=None):
 
         all_phases, all_wls, all_mags, all_errs = [], [], [], []
 
@@ -670,6 +686,20 @@ class GP3D(GP):
             return all_phases, all_wls, all_mags, all_errs
 
         ### Create the template grid from the observations
+        if set_to_normalize is not None:
+            all_template_phases, all_template_wls, all_template_mags, all_template_errs = [], [], [], []
+            for filt in filtlist:
+                phases, wl_grid, mags, err_grid = self.build_samples_3d(filt, phasemin, phasemax, log_transform=log_transform, sn_set=set_to_normalize)
+
+                all_template_phases = np.concatenate((all_template_phases, phases.flatten()))
+                all_template_wls = np.concatenate((all_template_wls, wl_grid.flatten()))
+                all_template_mags = np.concatenate((all_template_mags, mags.flatten()))
+                all_template_errs = np.concatenate((all_template_errs, err_grid.flatten()))               
+        else:
+            all_template_phases = all_phases
+            all_template_wls = all_wls
+            all_template_mags = all_mags
+            all_template_errs = all_errs
 
         if log_transform is not False:
             phase_grid_linear = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
@@ -677,29 +707,31 @@ class GP3D(GP):
         else:
             phase_grid = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
         
-        wl_grid = np.arange(min([self.wle[f] for f in filtlist])-500, max([self.wle[f] for f in filtlist])+500, 100) # Grid of wavelengths to iterate over, by 100 A
-        grid = np.zeros((len(phase_grid), len(wl_grid)))
-        err_grid = np.copy(grid)
+        wl_grid = np.arange(min([self.wle[f] for f in filtlist])-500, max([self.wle[f] for f in filtlist])+500, 99.5) # Grid of wavelengths to iterate over, by 100 A
+        mag_grid = np.zeros((len(phase_grid), len(wl_grid)))
+        err_grid = np.copy(mag_grid)
 
         for i in range(len(phase_grid)):
-            for j in range(len(grid[i,:])):
+            #for j in range(len(mag_grid[i,:])):
+            for j in range(len(wl_grid)):
 
                 ### Get all data that falls within this phase + 5 days, and this wl +- 100 A
                 if log_transform is not False:
-                    inds = np.where((np.exp(all_phases) - np.exp(phase_grid[i]) <= 5.0) & (np.exp(all_phases) - np.exp(phase_grid[i]) > 0.0) & (abs(all_wls - wl_grid[j]) < 100))[0]
+                    inds = np.where((np.exp(all_template_phases) - np.exp(phase_grid[i]) <= 5.0) & (np.exp(all_template_phases) - np.exp(phase_grid[i]) > 0.0) & (abs(all_template_wls - wl_grid[j]) < 100))[0]
                 else:
-                    inds = np.where((all_phases - phase_grid[i] <= 5.0) & (all_phases - phase_grid[i] > 0.0) & (abs(all_wls - wl_grid[j]) < 100))[0]
+                    inds = np.where((all_template_phases - phase_grid[i] <= 5.0) & (all_template_phases - phase_grid[i] > 0.0) & (abs(all_template_wls - wl_grid[j]) < 100))[0]
                 
                 if len(inds) == 0:
                     continue
                 
-                median_mag = np.median(all_mags[inds])
-                iqr = np.subtract(*np.percentile(all_mags[inds], [75, 25]))
+                median_mag = np.median(all_template_mags[inds])
+                iqr = np.subtract(*np.percentile(all_template_mags[inds], [75, 25]))
                 
-                grid[i,j] = median_mag
+                mag_grid[i,j] = median_mag
                 err_grid[i,j] = iqr
 
-        grid = savgol_filter(grid, 171, 3, axis=0)
+        mag_grid = savgol_filter(mag_grid, 171, 3, axis=0)
+        err_grid = savgol_filter(err_grid, 171, 3, axis=0)
 
         if plot:
             fig = plt.figure()
@@ -710,68 +742,161 @@ class GP3D(GP):
             else:
                 X, Y = np.meshgrid(phase_grid, wl_grid)
 
-            Z = grid.T
+            Z = mag_grid.T
 
             ax.plot_surface(X, Y, Z)
             # ADD AXES LABELS HERE
             plt.show()
-        
-        ### Subtract off templates for each SN LC set
+
+        return all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid
+    
+
+    def median_subtract_data(self, sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=False, plot=False):
+        ### Subtract off templates for each SN LC
         phase_residuals, wl_residuals, mag_residuals, err_residuals = [], [], [], []
         for filt in filtlist:
-            for sn in self.type.sne[self.subtype]:
 
+            if len(sn.shifted_data) == 0:
                 shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
-                if len(shifted_mjd) == 0:
+            else:
+                if filt not in sn.shifted_data.keys():
                     continue
-                if log_transform is not False:
-                    shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
+                shifted_mjd = np.asarray([phot['mjd'] for phot in sn.shifted_data[filt]])
+                shifted_mag = np.asarray([phot['mag'] for phot in sn.shifted_data[filt]])
+                err = np.asarray([phot['err'] for phot in sn.shifted_data[filt]])
+            if len(shifted_mjd) == 0:
+                continue
+            if log_transform is not False:
+                shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
 
-                if log_transform is not False:
-                    inds_to_fit = np.where((shifted_mjd > np.log(phasemin+log_transform)) & (shifted_mjd < np.log(phasemax+log_transform)))[0]
-                else:
-                    inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
+            if log_transform is not False:
+                inds_to_fit = np.where((shifted_mjd > np.log(phasemin+log_transform)) & (shifted_mjd < np.log(phasemax+log_transform)))[0]
+            else:
+                inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
 
-                phases = shifted_mjd[inds_to_fit]
-                mags = shifted_mag[inds_to_fit]
-                errs = err[inds_to_fit]
+            phases = shifted_mjd[inds_to_fit]
+            mags = shifted_mag[inds_to_fit]
+            errs = err[inds_to_fit]
+        
+            wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
+            #wl_inds = np.where((wl_grid == self.wle[filt]))[0]
+
+            if plot:
+                print('Plotting for filter ', filt)
+                fig, ax = plt.subplots()
+                ax.plot(phase_grid, mag_grid[:, wl_inds[0]], color=colors.get(filt, 'k'), label='template')
             
-                wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
-                for i, phase in enumerate(phases):
-                    phase_inds = np.where((abs(phase_grid - phase) <= 1./24))[0]
-                    
-                    phase_residuals.append(phase)
-                    wl_residuals.append(self.wle[filt])
-                    mag_residuals.append(mags[i] - grid[phase_inds[0], wl_inds[0]])
-                    err_residuals.append(np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2))
+            for i, phase in enumerate(phases):
+                phase_inds = np.where((abs(phase_grid - phase) <= 1./24))[0]
+                
+                phase_residuals.append(phase)
+                wl_residuals.append(self.wle[filt])
+                mag_residuals.append(mags[i] - mag_grid[phase_inds[0], wl_inds[0]])
+                #err_residuals.append(np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2))
+                err_residuals.append(errs[i])
+
+                if plot:
+                    #template_inds = np.where((wl_grid==self.wle[filt]))[0]
+                    ax.errorbar(phase, mags[i] - mag_grid[phase_inds[0], wl_inds[0]], yerr=np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2), marker='o', color='k')
+                    ax.errorbar(phase, mags[i], yerr=errs[i], fmt='o', color=colors.get(filt, 'k'))
+                               
+            if plot:
+                plt.axhline(y=0, linestyle='--', color='gray')
+                ax.errorbar([], [], yerr=[], marker='o', color='k', label='residuals', alpha=0.2)
+                ax.errorbar([], [], yerr=[], fmt='o', color=colors.get(filt, 'k'), label='data', alpha=0.5)
+                plt.gca().invert_yaxis()
+                plt.legend()
+                plt.show()
 
         return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
-        #return all_phases, all_wls, all_mags, all_errs
 
 
-    def run_gp(self, filtlist, phasemin, phasemax, test_size, plot=False, log_transform=False):
+    def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None):
 
-        all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=plot)
-        x = np.vstack((all_phases, all_wls)).T
-        y = all_mags
-        err = all_errs
+        if fit_residuals:
+            all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=plot, fit_residuals=True, set_to_normalize=set_to_normalize)
+            for sn in self.collection.sne:
+                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.median_subtract_data(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
+                x = np.vstack((phase_residuals, wl_residuals)).T
+                y = mag_residuals
+                if len(y) < 2:
+                    continue
+                err = err_residuals
 
-        X_train, X_test, Y_train, Y_test, Z_train, Z_test = train_test_split(x, y, err, test_size=test_size)
-    
-        ### Run the GP
-        gaussian_process = GaussianProcessRegressor(
-            kernel=self.kernel, alpha=Z_train, n_restarts_optimizer=10
-        )
-        gaussian_process.fit(X_train, Y_train)
+                gaussian_process = GaussianProcessRegressor(
+                    kernel=self.kernel, alpha=err, n_restarts_optimizer=10
+                )
+                gaussian_process.fit(x, y)
+
+                fig, ax = plt.subplots()
+                for filt in filtlist:
+
+                    print('On filt ', filt)
+
+                    if len(wl_residuals[wl_residuals==self.wle[filt]]) == 0:
+                        continue
+
+                    test_times = np.linspace(min(x[:,0]), max(x[:,0]), 60)
+                    test_waves = np.ones(len(test_times)) * self.wle[filt]
+
+                    test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
+                    if log_transform is not False:
+                        test_times = np.exp(test_times) - log_transform
+                    ax.plot(test_times, test_prediction, label=filt, color=colors.get(filt, 'k'))
+                    ax.fill_between(
+                            test_times,
+                            test_prediction - 1.96*std_prediction,
+                            test_prediction + 1.96*std_prediction,
+                            alpha=0.2,
+                            color=colors.get(filt, 'k')
+                    )
+
+                    # Plot the SN photometry
+                    if log_transform is not False:
+                        ax.errorbar(np.exp(phase_residuals[wl_residuals==self.wle[filt]]) - log_transform, 
+                                   mag_residuals[wl_residuals==self.wle[filt]],
+                                   yerr=err_residuals[wl_residuals==self.wle[filt]], 
+                                   fmt='o',
+                                   color=colors.get(filt, 'k'),
+                                   mec='k')
+                    else:
+                        ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]], 
+                                    mag_residuals[wl_residuals==self.wle[filt]],
+                                    yerr=err_residuals[wl_residuals==self.wle[filt]], 
+                                    fmt='o',
+                                    color=colors.get(filt, 'k'),
+                                    mec='k')
+
+                ax.invert_yaxis()
+                ax.set_xlabel('Normalized Time [days]')
+                ax.set_ylabel('Magnitude Residual')
+                plt.title(sn.name)
+                plt.legend()
+                plt.show()
+                print('Kernel parameters: ', gaussian_process.kernel_.theta)
+
+        else:
+            all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=plot)
+            x = np.vstack((all_phases, all_wls)).T
+            y = all_mags
+            err = all_errs
+
+            X_train, X_test, Y_train, Y_test, Z_train, Z_test = train_test_split(x, y, err, test_size=test_size)
         
-        self.gaussian_process = gaussian_process
-        
-        return gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test
+            ### Run the GP
+            gaussian_process = GaussianProcessRegressor(
+                kernel=self.kernel, alpha=Z_train, n_restarts_optimizer=10
+            )
+            gaussian_process.fit(X_train, Y_train)
+            
+            self.gaussian_process = gaussian_process
+            
+            return gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test
 
 
-    def predict_gp(self, filtlist, phasemin, phasemax, test_size, plot=False, log_transform=False):
+    def predict_gp(self, filtlist, phasemin, phasemax, test_size, plot=False, log_transform=False, fit_residuals=False):
 
-        gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test = self.run_gp(filtlist, phasemin, phasemax, test_size, plot=plot, log_transform=log_transform)
+        gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test = self.run_gp(filtlist, phasemin, phasemax, test_size, plot=plot, log_transform=log_transform, fit_residuals=fit_residuals)
 
         if plot:
             fig, ax = plt.subplots()
@@ -800,7 +925,7 @@ class GP3D(GP):
             ax.set_xlabel('Normalized Time [days]')
             ax.set_ylabel('Normalized Magnitude')
             #plt.suptitle('Classification: {}'.format(self.classification))
-            ax.set_title('SubType: {}'.format(self.collection[0].subtype))
+            #ax.set_title('SubType: {}'.format(self.collection[0].subtype))
             plt.legend()
             plt.show()
 
