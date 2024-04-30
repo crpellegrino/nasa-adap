@@ -240,7 +240,6 @@ class SN:
                     errs = np.asarray([phot['err'] for phot in mag_list])
 
                     ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
-
         plt.gca().invert_yaxis()
         plt.legend()
         plt.xlabel('MJD')
@@ -356,7 +355,7 @@ class SN:
         errs = np.asarray([phot['err'] for phot in self.data[filt]])
 
         if plot:
-            plt.errorbar(mjds, mags, yerr=errs, fmt='o', color='black', label=filt+'-band')
+            plt.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt+'-band')
             plt.xlabel('Shifted Time [days]')
             plt.ylabel('Shifted Magnitude')
             plt.title(self.name+'-Shifted Data')
@@ -407,6 +406,7 @@ class SNCollection:
                     print(type_list)
                     self.sne = [SN(name) for name in type_list]
                     self.type=sntype
+                    self.subtype=snsubtype
 
     def __repr__(self):
         print("Collection of SN Objects")
@@ -420,33 +420,64 @@ class SNCollection:
         #Maybe this lives in a separate class that handles the csv db file
         raise NotImplementedError
 
-    def plot_all_lcs(self, filt, subtypes='all', log_transform=False):
+    def plot_all_lcs(self, filts=['all'], log_transform=False):
+        """plot all light curves of given subtype/collection
+            can plot single, multiple or all bands"""
+        sne = self.sne
+        print(f"Plotting all {len(sne)} lightcurves in the collection")
 
-        if not type(subtypes) == list:
-            subtypes = [subtypes]
+        fig, ax = plt.subplots()
+        if filts[0] is not 'all':
+            filts_to_plot = filts
+        else:
+            print(f"BEWARE -- plotting ALL bands of ALL objects in the collection -- plot will be messy.\n")
+            filts_to_plot = colors.keys()
 
-        if 'all' in subtypes:
-            subtypes = self.subtypes
-
-        for subtype in subtypes:
-
-            fig, ax = plt.subplots()
-            
-            ### First find max values for given filt
-            for sn in self.sne[subtype]:
-
-                mjds, mags, errs = sn.shift_to_max(filt)
-                
+        for i,f in enumerate(filts_to_plot):
+            for sn in sne:
+                mjds, mags, errs = sn.shift_to_max(f)
                 if len(mjds) == 0:
                     continue
-                
                 if log_transform is not False:
                     mjds = sn.log_transform_time(mjds, phase_start=log_transform)
-                ax.errorbar(mjds, mags, yerr=errs, fmt='o', color='k')
+                ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
+            filtText = f+'\n'
+            plt.figtext(0.95, 0.75-(0.05*i), filtText, fontsize=14,color=colors.get(f))
+
+        # cannot figure out how to display only unique labels (filters) in order w/ matching handles 
+        # plt.legend()
+        
+        if log_transform is False:
+            ax.set_xlabel('Shifted Time [days]')
+        else:
+            ax.set_xlabel('Log(Shifted Time)')
+        ax.set_ylabel('Shifted Magnitudes')
+        plt.gca().invert_yaxis()
+        plt.title('Lightcurves for collection of {} objects\nType:{}, Subtype:{}'.format(len(sne),self.type,self.subtype))
+        plt.show()
+
+
+        # if not type(subtypes) == list:
+        #     subtypes = [subtypes]
+
+        # if 'all' in subtypes:
+        #     subtypes = self.subtypes
+
+        # for subtype in subtypes:
+        #     fig, ax = plt.subplots()
             
-            plt.gca().invert_yaxis()
-            plt.title('{} + {}'.format(subtype, filt))
-            plt.show()
+        #     ### First find max values for given filt
+        #     for sn in self.sne[subtype]:
+        #         mjds, mags, errs = sn.shift_to_max(filt)
+        #         if len(mjds) == 0:
+        #             continue
+        #         if log_transform is not False:
+        #             mjds = sn.log_transform_time(mjds, phase_start=log_transform)
+        #         ax.errorbar(mjds, mags, yerr=errs, fmt='o', color='k')
+            
+        #     plt.gca().invert_yaxis()
+        #     plt.title('{} + {}'.format(subtype, filt))
+        #     plt.show()
 
 
 class SNType(SNCollection):
