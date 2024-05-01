@@ -472,7 +472,7 @@ class SNType(SNCollection):
         #         self.subtypes.append(d)
         caat = CAAT()
         subtype_list = (caat.caat["Type"] == self.classification)
-        self.subtypes = list(set(caat.caat[subtype_list].subtype.values))
+        self.subtypes = list(set(caat.caat[subtype_list].Subtype.values))
 
 
     def build_object_list(self):
@@ -814,7 +814,7 @@ class GP3D(GP):
     def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None):
 
         if fit_residuals:
-            all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=plot, fit_residuals=True, set_to_normalize=set_to_normalize)
+            all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
             for sn in self.collection.sne:
                 phase_residuals, wl_residuals, mag_residuals, err_residuals = self.median_subtract_data(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
                 x = np.vstack((phase_residuals, wl_residuals)).T
@@ -835,33 +835,56 @@ class GP3D(GP):
 
                     if len(wl_residuals[wl_residuals==self.wle[filt]]) == 0:
                         continue
-
-                    test_times = np.linspace(min(x[:,0]), max(x[:,0]), 60)
+                    
+                    if log_transform is not False:
+                        test_times_linear = np.arange(phasemin, phasemax, 1./24)
+                        test_times = np.log(test_times_linear + log_transform)
+                    else:
+                        test_times = np.arange(phasemin, phasemax, 1./24)
                     test_waves = np.ones(len(test_times)) * self.wle[filt]
+
+                    ### Trying to convert back to normalized magnitudes here
+                    wl_inds = np.where((abs(wl_grid - self.wle[filt]) < 99.5))[0]
+                    template_mags = []
+                    for i in range(len(phase_grid)):
+                        template_mags.append(mag_grid[i, wl_inds[0]])
+
+                    template_mags = np.asarray(template_mags)
 
                     test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
                     if log_transform is not False:
                         test_times = np.exp(test_times) - log_transform
-                    ax.plot(test_times, test_prediction, label=filt, color=colors.get(filt, 'k'))
+
+                    ax.plot(test_times, test_prediction+template_mags, label=filt, color=colors.get(filt, 'k'))
                     ax.fill_between(
                             test_times,
-                            test_prediction - 1.96*std_prediction,
-                            test_prediction + 1.96*std_prediction,
+                            test_prediction - 1.96*std_prediction + template_mags,
+                            test_prediction + 1.96*std_prediction + template_mags,
                             alpha=0.2,
                             color=colors.get(filt, 'k')
                     )
 
                     # Plot the SN photometry
+                    shifted_mjd = np.asarray([phot['mjd'] for phot in sn.shifted_data[filt]])
+                    if log_transform is not False:
+                        shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
+
+                    if log_transform is not False:
+                        inds_to_fit = np.where((shifted_mjd > np.log(phasemin+log_transform)) & (shifted_mjd < np.log(phasemax+log_transform)))[0]
+                    else:
+                        inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
+                        
                     if log_transform is not False:
                         ax.errorbar(np.exp(phase_residuals[wl_residuals==self.wle[filt]]) - log_transform, 
-                                   mag_residuals[wl_residuals==self.wle[filt]],
+                                   np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
                                    yerr=err_residuals[wl_residuals==self.wle[filt]], 
                                    fmt='o',
                                    color=colors.get(filt, 'k'),
                                    mec='k')
+
                     else:
                         ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]], 
-                                    mag_residuals[wl_residuals==self.wle[filt]],
+                                    np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
                                     yerr=err_residuals[wl_residuals==self.wle[filt]], 
                                     fmt='o',
                                     color=colors.get(filt, 'k'),
