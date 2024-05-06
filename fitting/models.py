@@ -241,7 +241,6 @@ class SN:
                     errs = np.asarray([phot['err'] for phot in mag_list])
 
                     ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
-
         plt.gca().invert_yaxis()
         plt.legend()
         plt.xlabel('MJD')
@@ -369,7 +368,7 @@ class SN:
         errs = np.asarray([phot['err'] for phot in self.data[filt]])
 
         if plot:
-            plt.errorbar(mjds, mags, yerr=errs, fmt='o', color='black', label=filt+'-band')
+            plt.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt+'-band')
             plt.xlabel('Shifted Time [days]')
             plt.ylabel('Shifted Magnitude')
             plt.title(self.name+'-Shifted Data')
@@ -420,6 +419,7 @@ class SNCollection:
                     print(type_list)
                     self.sne = [SN(name) for name in type_list]
                     self.type=sntype
+                    self.subtype=snsubtype
 
     def __repr__(self):
         print("Collection of SN Objects")
@@ -433,36 +433,64 @@ class SNCollection:
         #Maybe this lives in a separate class that handles the csv db file
         raise NotImplementedError
 
-    def plot_all_lcs(self, filt, subtypes='all', log_transform=False):
+    def plot_all_lcs(self, filts=['all'], log_transform=False):
+        """plot all light curves of given subtype/collection
+            can plot single, multiple or all bands"""
+        sne = self.sne
+        print(f"Plotting all {len(sne)} lightcurves in the collection")
 
-        if not type(subtypes) == list:
-            subtypes = [subtypes]
+        fig, ax = plt.subplots()
+        if filts[0] is not 'all':
+            filts_to_plot = filts
+        else:
+            print(f"BEWARE -- plotting ALL bands of ALL objects in the collection -- plot will be messy.\n")
+            filts_to_plot = colors.keys()
 
-        if 'all' in subtypes:
-            subtypes = self.subtypes
-
-        for subtype in subtypes:
-
-            fig, ax = plt.subplots()
-            
-            ### First find max values for given filt
-            caat = CAAT()
-            type_list = caat.get_sne_by_type(self.type, subtype)
-            for sn in [sn for sn in self.sne if sn.name in type_list]:
-            #for sn in self.sne[subtype]:
-
-                mjds, mags, errs = sn.shift_to_max(filt)
-                
+        for i,f in enumerate(filts_to_plot):
+            for sn in sne:
+                mjds, mags, errs = sn.shift_to_max(f)
                 if len(mjds) == 0:
                     continue
-                
                 if log_transform is not False:
                     mjds = sn.log_transform_time(mjds, phase_start=log_transform)
-                ax.errorbar(mjds, mags, yerr=errs, fmt='o', color='k')
+                ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
+            filtText = f+'\n'
+            plt.figtext(0.95, 0.75-(0.05*i), filtText, fontsize=14,color=colors.get(f))
+
+        # cannot figure out how to display only unique labels (filters) in order w/ matching handles 
+        # plt.legend()
+        
+        if log_transform is False:
+            ax.set_xlabel('Shifted Time [days]')
+        else:
+            ax.set_xlabel('Log(Shifted Time)')
+        ax.set_ylabel('Shifted Magnitudes')
+        plt.gca().invert_yaxis()
+        plt.title('Lightcurves for collection of {} objects\nType:{}, Subtype:{}'.format(len(sne),self.type,self.subtype))
+        plt.show()
+
+
+        # if not type(subtypes) == list:
+        #     subtypes = [subtypes]
+
+        # if 'all' in subtypes:
+        #     subtypes = self.subtypes
+
+        # for subtype in subtypes:
+        #     fig, ax = plt.subplots()
             
-            plt.gca().invert_yaxis()
-            plt.title('{} + {}'.format(subtype, filt))
-            plt.show()
+        #     ### First find max values for given filt
+        #     for sn in self.sne[subtype]:
+        #         mjds, mags, errs = sn.shift_to_max(filt)
+        #         if len(mjds) == 0:
+        #             continue
+        #         if log_transform is not False:
+        #             mjds = sn.log_transform_time(mjds, phase_start=log_transform)
+        #         ax.errorbar(mjds, mags, yerr=errs, fmt='o', color='k')
+            
+        #     plt.gca().invert_yaxis()
+        #     plt.title('{} + {}'.format(subtype, filt))
+        #     plt.show()
 
 
 class SNType(SNCollection):
@@ -636,15 +664,23 @@ class GP(Fitter):
 
         if plot:
             fig, ax = plt.subplots()
-            ax.plot(sorted(phases), mean_prediction)
-            ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt='o', alpha=0.2)
+            ax.plot(sorted(phases), mean_prediction, color='k', label='GP fit',zorder=10)
+            ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt='o', color=colors.get(filt, 'k'), alpha=0.2, label=filt,zorder=0)
             ax.fill_between(
                     sorted(phases.ravel()),
                     mean_prediction - 1.96*std_prediction,
                     mean_prediction + 1.96*std_prediction,
-                    alpha=0.5
+                    alpha=0.5,
+                    color='lightgray',
+                    label='?2-sigma Error',
+                    zorder=10
             )
             plt.gca().invert_yaxis()
+            plt.xlabel('Shifted Time [days]')
+            plt.ylabel('Shifted Magnitude')
+            plt.title('Single-Filter GP Fit')
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
             plt.show()
 
 
@@ -782,7 +818,9 @@ class GP3D(GP):
             Z = mag_grid.T
 
             ax.plot_surface(X, Y, Z)
-            # ADD AXES LABELS HERE
+            ax.set_xlabel('Phase Grid')
+            ax.set_ylabel('Wavelengths [nm]')
+            ax.set_zlabel('Magnitude')
             plt.show()
 
         return all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid
@@ -998,7 +1036,7 @@ class GP3D(GP):
 
             if plot:
                 fig, ax = plt.subplots()
-
+                
             for filt in filtlist:
 
                 test_times = np.linspace(min(X_test[:,0]), max(X_test[:,0]), 60)
@@ -1024,6 +1062,7 @@ class GP3D(GP):
                 ax.set_ylabel('Normalized Magnitude')
                 #plt.suptitle('Classification: {}'.format(self.classification))
                 #ax.set_title('SubType: {}'.format(self.collection[0].subtype))
+                plt.title('3D GP Fit')
                 plt.legend()
                 plt.show()
 
