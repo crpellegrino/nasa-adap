@@ -651,15 +651,23 @@ class GP(Fitter):
 
         if plot:
             fig, ax = plt.subplots()
-            ax.plot(sorted(phases), mean_prediction)
-            ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt='o', alpha=0.2)
+            ax.plot(sorted(phases), mean_prediction, color='k', label='GP fit',zorder=10)
+            ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt='o', color=colors.get(filt, 'k'), alpha=0.2, label=filt,zorder=0)
             ax.fill_between(
                     sorted(phases.ravel()),
                     mean_prediction - 1.96*std_prediction,
                     mean_prediction + 1.96*std_prediction,
-                    alpha=0.5
+                    alpha=0.5,
+                    color='lightgray',
+                    label='?2-sigma Error',
+                    zorder=10
             )
             plt.gca().invert_yaxis()
+            plt.xlabel('Shifted Time [days]')
+            plt.ylabel('Shifted Magnitude')
+            plt.title('Single-Filter GP Fit')
+            handles, labels = ax.get_legend_handles_labels()
+            ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
             plt.show()
 
 
@@ -776,7 +784,9 @@ class GP3D(GP):
             Z = mag_grid.T
 
             ax.plot_surface(X, Y, Z)
-            # ADD AXES LABELS HERE
+            ax.set_xlabel('Phase Grid')
+            ax.set_ylabel('Wavelengths [nm]')
+            ax.set_zlabel('Magnitude')
             plt.show()
 
         return all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid
@@ -952,8 +962,8 @@ class GP3D(GP):
 
         gaussian_process, X_train, X_test, Y_train, Y_test, Z_train, Z_test = self.run_gp(filtlist, phasemin, phasemax, test_size, plot=plot, log_transform=log_transform, fit_residuals=fit_residuals)
 
-        if plot:
-            fig, ax = plt.subplots()
+        # if plot:
+        #     fig, ax = plt.subplots()
 
         for filt in filtlist:
 
@@ -963,6 +973,7 @@ class GP3D(GP):
             test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
 
             if plot:
+                fig, ax = plt.subplots()
                 if log_transform is not False:
                     test_times = np.exp(test_times) - log_transform
                 ax.plot(test_times, test_prediction, label=filt)
@@ -972,7 +983,7 @@ class GP3D(GP):
                         test_prediction + 1.96*std_prediction,
                         alpha=0.2,
                 )
-                # ADD OPTION TO DISPLAY DATA POITNS USED ?
+                # ADD OPTION TO DISPLAY DATA POINTS USED ?
 
         if plot:
             ax.invert_yaxis()
@@ -980,6 +991,7 @@ class GP3D(GP):
             ax.set_ylabel('Normalized Magnitude')
             #plt.suptitle('Classification: {}'.format(self.classification))
             #ax.set_title('SubType: {}'.format(self.collection[0].subtype))
+            plt.title('3D GP Fit')
             plt.legend()
             plt.show()
 
