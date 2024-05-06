@@ -818,6 +818,7 @@ class GP3D(GP):
             Z = mag_grid.T
 
             ax.plot_surface(X, Y, Z)
+            ax.invert_zaxis()
             ax.set_xlabel('Phase Grid')
             ax.set_ylabel('Wavelengths [nm]')
             ax.set_zlabel('Magnitude')
@@ -886,7 +887,7 @@ class GP3D(GP):
         return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
 
 
-    def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False):
+    def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False, interactive=False):
 
         if fit_residuals:
             all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
@@ -975,7 +976,7 @@ class GP3D(GP):
                     plt.legend()
                     plt.show()
 
-                    if median_combine_gps:
+                    if median_combine_gps and interactive:
                         use_for_template = input('Use this fit to construct a template? y/n')
 
                 if median_combine_gps:
@@ -995,10 +996,15 @@ class GP3D(GP):
                     ax = fig.add_subplot(111, projection='3d')
                     ax.plot_surface(x, y, test_prediction.reshape((len(x), -1)))
                     ax.invert_zaxis()
+                    ax.set_xlabel('Phase Grid')
+                    ax.set_ylabel('Wavelengths')
+                    ax.set_zlabel('Magnitude')
                     plt.show()
                     
-                    print('Max GP prediction: ', max([max(row) for row in test_prediction.reshape((len(x), -1))]))
+                    #print('Max GP prediction: ', max([max(row) for row in test_prediction.reshape((len(x), -1))]))
                     if not plot:
+                        use_for_template = 'y'
+                    elif not interactive:
                         use_for_template = 'y'
                     if use_for_template == 'y':
                         gaussian_processes.append(test_prediction.reshape((len(x), -1)))
@@ -1029,7 +1035,7 @@ class GP3D(GP):
 
     def predict_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=False, median_combine_gps=False):
 
-        if test_size is not None:
+        if not median_combine_gps:#test_size is not None:
             ### Fitting sample of SNe altogether
         
             gaussian_process, X_test, kernel_params = self.run_gp(filtlist, phasemin, phasemax, test_size=test_size, plot=plot, log_transform=log_transform, fit_residuals=fit_residuals)
@@ -1037,34 +1043,35 @@ class GP3D(GP):
             if plot:
                 fig, ax = plt.subplots()
                 
-            for filt in filtlist:
+            if test_size is not None:
+                for filt in filtlist:
 
-                test_times = np.linspace(min(X_test[:,0]), max(X_test[:,0]), 60)
-                test_waves = np.ones(len(test_times)) * self.wle[filt]
+                    test_times = np.linspace(min(X_test[:,0]), max(X_test[:,0]), 60)
+                    test_waves = np.ones(len(test_times)) * self.wle[filt]
 
-                test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
+                    test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
+
+                    if plot:
+                        if log_transform is not False:
+                            test_times = np.exp(test_times) - log_transform
+                        ax.plot(test_times, test_prediction, label=filt)
+                        ax.fill_between(
+                                test_times,
+                                test_prediction - 1.96*std_prediction,
+                                test_prediction + 1.96*std_prediction,
+                                alpha=0.2,
+                        )
+                        # ADD OPTION TO DISPLAY DATA POITNS USED ?
 
                 if plot:
-                    if log_transform is not False:
-                        test_times = np.exp(test_times) - log_transform
-                    ax.plot(test_times, test_prediction, label=filt)
-                    ax.fill_between(
-                            test_times,
-                            test_prediction - 1.96*std_prediction,
-                            test_prediction + 1.96*std_prediction,
-                            alpha=0.2,
-                    )
-                    # ADD OPTION TO DISPLAY DATA POITNS USED ?
-
-            if plot:
-                ax.invert_yaxis()
-                ax.set_xlabel('Normalized Time [days]')
-                ax.set_ylabel('Normalized Magnitude')
-                #plt.suptitle('Classification: {}'.format(self.classification))
-                #ax.set_title('SubType: {}'.format(self.collection[0].subtype))
-                plt.title('3D GP Fit')
-                plt.legend()
-                plt.show()
+                    ax.invert_yaxis()
+                    ax.set_xlabel('Normalized Time [days]')
+                    ax.set_ylabel('Normalized Magnitude')
+                    #plt.suptitle('Classification: {}'.format(self.classification))
+                    #ax.set_title('SubType: {}'.format(self.collection[0].subtype))
+                    plt.title('3D GP Fit')
+                    plt.legend()
+                    plt.show()
 
         elif median_combine_gps:
             ### We're fitting each SN individually and then median combining the full 2D GP
@@ -1084,8 +1091,12 @@ class GP3D(GP):
             else:
                 X, Y = np.meshgrid(phase_grid, wl_grid)
 
-            Z = median_gp#.reshape((len(X), len(Y)))
+            Z = median_gp
 
             ax.plot_surface(X, Y, Z)
-            # ADD AXES LABELS HERE
+            ax.invert_zaxis()
+            ax.set_xlabel('Phase Grid')
+            ax.set_ylabel('Wavelengths')
+            ax.set_zlabel('Magnitude')
+            plt.title('Final Median GP Fit')
             plt.show()
