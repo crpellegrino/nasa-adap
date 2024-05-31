@@ -781,6 +781,11 @@ class GP3D(GP):
             all_template_mags = all_mags
             all_template_errs = all_errs
 
+        return all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs
+
+
+    def construct_median_grid(self, phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=False, plot=False):
+        
         if log_transform is not False:
             phase_grid_linear = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
             phase_grid = np.log(phase_grid_linear + log_transform) # Grid of phases in log space
@@ -802,9 +807,9 @@ class GP3D(GP):
 
                 ### Get all data that falls within this phase + 5 days, and this wl +- 100 A
                 if log_transform is not False:
-                    inds = np.where((np.exp(all_template_phases) - np.exp(phase_grid[i]) <= 5.0) & (np.exp(all_template_phases) - np.exp(phase_grid[i]) > 0.0) & (abs(10**all_template_wls - 10**wl_grid[j]) <= 100))[0]
+                    inds = np.where((np.exp(all_template_phases) - np.exp(phase_grid[i]) <= 5.0) & (np.exp(all_template_phases) - np.exp(phase_grid[i]) > 0.0) & (abs(10**all_template_wls - 10**wl_grid[j]) <= 500))[0]
                 else:
-                    inds = np.where((all_template_phases - phase_grid[i] <= 5.0) & (all_template_phases - phase_grid[i] > 0.0) & (abs(all_template_wls - wl_grid[j]) <= 100))[0]
+                    inds = np.where((all_template_phases - phase_grid[i] <= 5.0) & (all_template_phases - phase_grid[i] > 0.0) & (abs(all_template_wls - wl_grid[j]) <= 500))[0]
                 
                 if len(inds) == 0:
                     continue
@@ -840,10 +845,22 @@ class GP3D(GP):
             ax.set_zlabel('Magnitude')
             plt.show()
 
-        return all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid
+            for filt in filtlist:
+                if log_transform is not False:
+                    wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) <= 100))[0]
+                else:
+                    wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
+
+                plt.errorbar(phase_grid, mag_grid[:,wl_inds[0]], yerr=abs(err_grid[:,wl_inds[0]]), fmt='o')
+                plt.gca().invert_yaxis()
+                plt.title(filt)
+                plt.show()
+
+        return phase_grid, wl_grid, mag_grid, err_grid
     
 
     def median_subtract_data(self, sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=False, plot=False):
+
         ### Subtract off templates for each SN LC
         phase_residuals, wl_residuals, mag_residuals, err_residuals = [], [], [], []
         for filt in filtlist:
@@ -910,17 +927,18 @@ class GP3D(GP):
                 plt.legend()
                 plt.show()
 
-        return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
+        return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals), phase_grid, wl_grid, mag_grid, err_grid
 
 
     def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False, interactive=False):
 
         if fit_residuals:
-            all_phases, all_wls, all_mags, all_errs, phase_grid, wl_grid, mag_grid, err_grid = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
+            all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)#phase_grid, wl_grid, mag_grid, err_grid = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
             kernel_params = []
             gaussian_processes = []
+            phase_grid, wl_grid, mag_grid, err_grid = self.construct_median_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
             for sn in self.collection.sne:
-                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.median_subtract_data(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
+                phase_residuals, wl_residuals, mag_residuals, err_residuals, phase_grid, wl_grid, mag_grid, err_grid = self.median_subtract_data(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
                 x = np.vstack((phase_residuals, wl_residuals)).T
                 y = mag_residuals
                 if len(y) < 2:
