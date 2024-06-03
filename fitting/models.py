@@ -859,6 +859,81 @@ class GP3D(GP):
         return phase_grid, wl_grid, mag_grid, err_grid
     
 
+    def construct_polynomial_grid(self, phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=False, plot=False):
+        
+        if log_transform is not False:
+            phase_grid_linear = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
+            phase_grid = np.log(phase_grid_linear + log_transform) # Grid of phases in log space
+
+            wl_grid_linear = np.arange(min([self.wle[f] for f in filtlist])-500, max([self.wle[f] for f in filtlist])+500, 99.5) # Grid of wavelengths to iterate over, by 100 A
+            wl_grid = np.log10(wl_grid_linear)
+
+        else:
+            phase_grid = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
+            wl_grid = np.arange(min([self.wle[f] for f in filtlist])-500, max([self.wle[f] for f in filtlist])+500, 99.5) # Grid of wavelengths to iterate over, by 100 A
+        
+        mag_grid = np.empty((len(phase_grid), len(wl_grid)))
+        mag_grid[:] = np.nan
+        err_grid = np.copy(mag_grid)
+
+        for j in range(len(wl_grid)):
+
+            ### Get all data that falls within this wl +- 100 A
+            if log_transform is not False:
+                inds = np.where((abs(10**all_template_wls - 10**wl_grid[j]) <= 100))[0]
+            else:
+                inds = np.where((abs(all_template_wls - wl_grid[j]) <= 100))[0]
+
+            #if np.shape(inds) != 
+            ### Add check to make sure inds is 1D
+            
+            if len(inds) == 0:
+                continue
+            
+            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 6, w=1/all_template_errs[inds])
+            fit = np.poly1d(fit_coeffs)
+            grid_mags = fit(phase_grid)
+            
+            mag_grid[:,j] = grid_mags
+            err_grid[:,j] = np.ones(len(phase_grid)) * np.median(all_template_mags[inds] - fit(all_template_phases[inds]))
+            
+            # plt.fill_between(phase_grid, grid_mags - err_grid[:,j], grid_mags + err_grid[:, j], alpha=0.5)
+            # plt.scatter(all_template_phases[inds], all_template_mags[inds], marker='o', color='k')
+            # plt.plot(phase_grid, grid_mags, color='blue')
+            # plt.show()
+
+        if plot:
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')
+            
+            if log_transform is not False:
+                X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
+            else:
+                X, Y = np.meshgrid(phase_grid, wl_grid)
+
+            Z = mag_grid.T
+
+            ax.plot_surface(X, Y, Z)
+            ax.invert_zaxis()
+            ax.set_xlabel('Phase Grid')
+            ax.set_ylabel('Wavelengths [nm]')
+            ax.set_zlabel('Magnitude')
+            plt.show()
+
+            for filt in filtlist:
+                if log_transform is not False:
+                    wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) <= 100))[0]
+                else:
+                    wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
+
+                plt.errorbar(phase_grid, mag_grid[:,wl_inds[0]], yerr=abs(err_grid[:,wl_inds[0]]), fmt='o')
+                plt.gca().invert_yaxis()
+                plt.title(filt)
+                plt.show()
+
+        return phase_grid, wl_grid, mag_grid, err_grid
+    
+
     def median_subtract_data(self, sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=False, plot=False):
 
         ### Subtract off templates for each SN LC
@@ -927,18 +1002,18 @@ class GP3D(GP):
                 plt.legend()
                 plt.show()
 
-        return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals), phase_grid, wl_grid, mag_grid, err_grid
+        return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
 
 
     def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False, interactive=False):
 
         if fit_residuals:
-            all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)#phase_grid, wl_grid, mag_grid, err_grid = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
+            all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
             kernel_params = []
             gaussian_processes = []
-            phase_grid, wl_grid, mag_grid, err_grid = self.construct_median_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
             for sn in self.collection.sne:
-                phase_residuals, wl_residuals, mag_residuals, err_residuals, phase_grid, wl_grid, mag_grid, err_grid = self.median_subtract_data(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
+                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.median_subtract_data(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
                 x = np.vstack((phase_residuals, wl_residuals)).T
                 y = mag_residuals
                 if len(y) < 2:
