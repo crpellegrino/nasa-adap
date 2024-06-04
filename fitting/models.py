@@ -51,10 +51,19 @@ class CAAT:
         else:
             sne_list = self.caat["Type"] == sntype
         return self.caat[sne_list].Name.values
-            
-        
+    
+
     @staticmethod
-    def create_db_file(type_list = None):
+    def save_db_file(db_loc, sndb, force=False):
+        if not force and os.path.exists(db_loc):
+            print('WARNING: CAAT file with this name already exists. To overwrite, use force=True')
+        
+        else:
+            sndb.to_csv(db_loc, index=False)
+            
+    
+    @classmethod
+    def create_db_file(CAAT, type_list = None, base_db_name = 'caat.csv', force = False):
         #This might need to be replaced long term with some configuration parameters/config file    
         base_path = '../data/'
         base_db_name = 'caat.csv'
@@ -62,11 +71,14 @@ class CAAT:
 
         #Create A List Of Folders To Parse
         if type_list is None:
-            type_list = ["SESNE", "SLSN-I", "SLSN-II", "SNII", "SNIIn"]
+            type_list = ["SESNe", "SLSN-I", "SLSN-II", "SNII", "SNIIn"]
 
         sndb_name = []
         sndb_type = []
         sndb_subtype = []
+        sndb_tmax = []
+        sndb_mmax = []
+        sndb_filtmax = []
         #etc
         for sntype in type_list:
             """ For each folder:
@@ -81,9 +93,15 @@ class CAAT:
                 sndb_name.extend(sn_names)
                 sndb_type.extend([sntype] * len(sn_names))
                 sndb_subtype.extend([snsubtype] * len(sn_names))
+                sndb_tmax.extend([np.nan] * len(sn_names))
+                sndb_mmax.extend([np.nan]*len(sn_names))
+                sndb_filtmax.extend([''] * len(sn_names))
 
-        sndb = pd.DataFrame({"Name": sndb_name, "Type": sndb_type, "Subtype": sndb_subtype})
-        sndb.to_csv(db_loc, index=False)
+        sndb = pd.DataFrame({"Name": sndb_name, "Type": sndb_type, "Subtype": sndb_subtype,
+                             "Tmax": sndb_tmax, "Magmax": sndb_mmax, "Filtmax": sndb_filtmax})
+        
+        CAAT.save_db_file(db_loc, sndb, force=force)
+
     
     @property
     def db(self):
@@ -124,7 +142,7 @@ class SN:
             if not found:
                 raise Exception(f'No SN named {name} found in our archives')
             
-            self.read_info_file()
+            self.read_info_from_caat_file()
             self.load_shifted_data()
 
         if isinstance(data, dict):
@@ -140,22 +158,46 @@ class SN:
         return self.name
 
 
-    def write_info_file(self):
+    def write_info_to_caat_file(self, force=False):
 
-        with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json'), 'w+') as f:
-            json.dump(self.info, f, indent=4)
+        Caat = CAAT()
+        caat = Caat.caat
+        row = caat[caat["Name"] == self.name]
+
+        row['Tmax'] = self.info.get('peak_mjd', np.nan)
+        row['Magmax'] = self.info.get('peak_mag', np.nan)
+        row['Filtmax'] = self.info.get('peak_filt', '')
+        
+        caat[caat["Name"] == self.name] = row
+
+        ### Save back to the csv file
+        Caat.save_db_file('../data/caat.csv', caat, force=force)
 
 
-    def read_info_file(self):
+    def read_info_from_caat_file(self):
 
-        if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json')):
+        caat = CAAT().caat
+        row = caat[caat["Name"] == self.name]
+        if np.isnan(row['Tmax'].values) or np.isnan(row['Magmax'].values) or not row['Filtmax'].values:
             self.info = {}
 
         else:
-            with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json'), 'r') as f:
-                info_dict = json.load(f)
+            info_dict = {}
+            info_dict['peak_mjd'] = row['Tmax'].values[0]
+            info_dict['peak_mag'] = row['Magmax'].values[0]
+            info_dict['peak_filt'] = row['Filtmax'].values[0]
+            info_dict['searched'] = True
 
             self.info = info_dict
+
+        # if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json')):
+        #     self.info = {}
+
+        # else:
+        #     with open(os.path.join(self.base_path, self.classification, self.subtype, self.name, self.name+'_info.json'), 'r') as f:
+        #         info_dict = json.load(f)
+
+        #     self.info = info_dict
 
     
     def load_swift_data(self):
@@ -212,7 +254,7 @@ class SN:
             self.shifted_data = shifted_data
 
 
-    def plot_data(self, filts_to_plot=['all'], shifted_data_exists=False, view_shifted_data=False):
+    def plot_data(self, filts_to_plot=['all'], shifted_data_exists=False, view_shifted_data=False, offset=0):
         if not self.data: # check if data/SN has not been previously read in/initialized
             self.load_swift_data()
             self.load_json_data()
@@ -226,7 +268,7 @@ class SN:
             data_to_plot = self.shifted_data
         elif view_shifted_data:
             for f in filts_to_plot:
-                self.shift_to_max(f)
+                self.shift_to_max(f, offset=offset)
             data_to_plot = self.shifted_data
         else:
             data_to_plot = self.data
@@ -250,7 +292,7 @@ class SN:
         plt.show()
 
 
-    def fit_for_max(self, filt, shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=False):
+    def fit_for_max(self, filt, shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=False, offset=0):
         """
         Takes as input arrays for MJD, mag, and err for a filter
         as well as the guess for the MJD of maximum and an array
@@ -261,16 +303,14 @@ class SN:
         mag_array = np.asarray([phot['mag'] for phot in self.data[filt]])
         err_array = np.asarray([phot['err'] for phot in self.data[filt]])
 
-        if plot:
-            fig, ax = plt.subplots()
-
         if len(mag_array) < 4:#== 0:
             return None, None
         
-        initial_guess_mjd_max = mjd_array[np.where((mag_array == min(mag_array)))[0]][0]
+        initial_guess_mjd_max = mjd_array[np.where((mag_array == min(mag_array)))[0]][0] + offset
 
         fit_inds = np.where((abs(mjd_array - initial_guess_mjd_max) < 30))[0]
         if len(fit_inds) < 4:
+
             return None, None
 
         fit_coeffs = np.polyfit(mjd_array[fit_inds], mag_array[fit_inds], 3)
@@ -285,6 +325,9 @@ class SN:
         if len(inds_to_fit[0]) < 4:
             #print('Select a wider date range')
             return None, None
+        
+        if plot:
+            fig, ax = plt.subplots()
 
         numdata = len(mjd_array[inds_to_fit])
         numiter = max(int(numdata * np.log(numdata)**2), 200)
@@ -342,11 +385,10 @@ class SN:
         self.info['peak_mjd'] = mean(peak_mjds)
         self.info['peak_mag'] = mean(peak_mags)
         self.info['peak_filt'] = filt
+        self.info['searched'] = True
 
-        return mean(peak_mjds), mean(peak_mags)
 
-
-    def shift_to_max(self, filt, shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=False):
+    def shift_to_max(self, filt, shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=False, offset=0):
 
         if not self.data:
             self.load_swift_data()
@@ -356,17 +398,19 @@ class SN:
             return [], [], []
 
         if not self.info.get('peak_mjd') and not self.info.get('peak_mag'):
+            self.fit_for_max(filt, shift_array=shift_array, plot=plot, offset=offset)
 
-            peak_mjd, peak_mag = self.fit_for_max(filt, shift_array=shift_array)
-            while not peak_mjd:
-                # Fitting didn't work, try another filter
+            if not self.info.get('peak_mjd', 0) > 0:
                 for newfilt in ['V', 'g', 'c', 'B', 'r', 'o', 'U', 'i', 'UVW1']:
                     if newfilt in self.data.keys() and newfilt != filt:
-                        peak_mjd, peak_mag = self.fit_for_max(newfilt, shift_array=shift_array)
-            
-                if newfilt == 'UVW1' and not peak_mjd:
-                    print('Reached last filter and could not fit for peak')
-                    break
+                        self.fit_for_max(newfilt, shift_array=shift_array, plot=plot, offset=offset)
+
+                        if self.info.get('peak_mjd', 0) > 0:
+                            break
+
+                if newfilt == 'UVW1' and not self.info.get('peak_mjd', 0) > 0:
+                    print('Reached last filter and could not fit for peak for ', self.name)
+                    self.info['searched'] = True
         
         if not self.info.get('peak_mag', 0) > 0:
             return [], [], []
@@ -389,6 +433,49 @@ class SN:
             [{'mjd': mjds[i], 'mag': mags[i], 'err': errs[i]} for i in range(len(mjds))]
         )
         return mjds, mags, errs
+    
+
+    def interactively_fit_for_max(self, filt='', shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=True, offset=0, save_to_caat=False, force=False):
+
+        self.load_json_data()
+        self.load_swift_data()
+        self.shifted_data = {}
+
+        if not filt:
+            self.plot_data()
+            print('Data in filters {}\n'.format(list(self.data.keys())))
+
+            filt = input('Which filter would you like to use to fit for max? To skip, type "skip"\n')
+            if filt == 'skip':
+                return 
+            
+        mjds, _, _ = self.shift_to_max(filt, shift_array=shift_array, plot=plot, offset=offset)
+
+        if len(mjds) == 0:
+            refit = input('No photometry found for this filter. Try to refit? y/n \n')
+
+        else:
+            self.plot_data(view_shifted_data=True)
+            refit = input('Refit the data with new filter or offset? y/n \n')
+
+        if refit == 'n' and save_to_caat:
+            self.write_info_to_caat_file(force=force)
+
+        elif refit == 'n' and not save_to_caat:
+            print('To save these parameters, rerun with "save_to_caat=True"')
+
+        elif refit == 'y':
+            self.info = {}
+            newfilt = input('Try fitting a new filter? If so, enter the filter here. If not, leave blank to pick new offset\n')
+
+            if newfilt:
+                self.interactively_fit_for_max(newfilt, shift_array=shift_array, plot=plot, offset=offset, save_to_caat=save_to_caat, force=force)
+                
+            else:
+                newoffset = input('Enter new offset here\n')
+
+                if newoffset:
+                    self.interactively_fit_for_max(filt, shift_array=shift_array, plot=plot, offset=float(newoffset), save_to_caat=save_to_caat, force=force)
 
 
     def log_transform_time(self, phases, phase_start=30):
@@ -613,9 +700,21 @@ class GP(Fitter):
                 sn.load_swift_data()
                 sn.load_json_data()
 
-            shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
+            if len(sn.shifted_data) == 0:
+                ### Check to see if we've already tried to fit for maximum
+                if sn.info.get('searched', False):
+                    ### Fitting for max was already tried for all filters
+                    shifted_mjd, shifted_mag, err = [], [], []
+                else:
+                    ### Try to fit for max for the first time
+                    shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
+            else:
+                ### We already successfully fit for peak, so get the shifted photometry for this filter
+                shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
+                    
             if len(shifted_mjd) == 0:
                 continue
+
             if log_transform is not False:
                 shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
 
@@ -721,7 +820,6 @@ class GP3D(GP):
       
 
     def build_samples_3d(self, filt, phasemin, phasemax, log_transform=False, sn_set=None):
-
         phases, mags, errs = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform, sn_set=sn_set)
 
         min_phase, max_phase = sorted(phases)[0], sorted(phases)[-1]
@@ -920,34 +1018,38 @@ class GP3D(GP):
             ax.set_zlabel('Magnitude')
             plt.show()
 
-            for filt in filtlist:
-                if log_transform is not False:
-                    wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) <= 100))[0]
-                else:
-                    wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
+            # for filt in filtlist:
+            #     if log_transform is not False:
+            #         wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) <= 100))[0]
+            #     else:
+            #         wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
 
-                plt.errorbar(phase_grid, mag_grid[:,wl_inds[0]], yerr=abs(err_grid[:,wl_inds[0]]), fmt='o')
-                plt.gca().invert_yaxis()
-                plt.title(filt)
-                plt.show()
+            #     plt.errorbar(phase_grid, mag_grid[:,wl_inds[0]], yerr=abs(err_grid[:,wl_inds[0]]), fmt='o')
+            #     plt.gca().invert_yaxis()
+            #     plt.title(filt)
+            #     plt.show()
 
         return phase_grid, wl_grid, mag_grid, err_grid
     
 
-    def median_subtract_data(self, sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=False, plot=False):
+    def subtract_data_from_grid(self, sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=False, plot=False):
 
         ### Subtract off templates for each SN LC
         phase_residuals, wl_residuals, mag_residuals, err_residuals = [], [], [], []
         for filt in filtlist:
 
             if len(sn.shifted_data) == 0:
-                shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
+                if sn.info.get('searched', False):
+                    shifted_mjd, shifted_mag, err = [], [], []
+                else:
+                    shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             else:
                 if filt not in sn.shifted_data.keys():
                     continue
                 shifted_mjd = np.asarray([phot['mjd'] for phot in sn.shifted_data[filt]])
                 shifted_mag = np.asarray([phot['mag'] for phot in sn.shifted_data[filt]])
                 err = np.asarray([phot['err'] for phot in sn.shifted_data[filt]])
+            
             if len(shifted_mjd) == 0:
                 continue
 
@@ -1013,7 +1115,7 @@ class GP3D(GP):
             gaussian_processes = []
             phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
             for sn in self.collection.sne:
-                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.median_subtract_data(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
+                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.subtract_data_from_grid(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
                 x = np.vstack((phase_residuals, wl_residuals)).T
                 y = mag_residuals
                 if len(y) < 2:
@@ -1076,26 +1178,27 @@ class GP3D(GP):
                     else:
                         inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
 
-                    try:   
-                        if log_transform is not False and plot:
-                            ax.errorbar(np.exp(phase_residuals[wl_residuals==np.log10(self.wle[filt])]) - log_transform, 
+                    # try:   
+                    if log_transform is not False and plot:
+                        #print(wl_residuals, np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit])
+                        ax.errorbar(np.exp(phase_residuals[wl_residuals==np.log10(self.wle[filt])]) - log_transform, 
+                                np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
+                                yerr=err_residuals[wl_residuals==np.log10(self.wle[filt])], 
+                                fmt='o',
+                                color=colors.get(filt, 'k'),
+                                mec='k')
+
+                    elif plot:
+                        ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]], 
                                     np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
-                                    yerr=err_residuals[wl_residuals==np.log10(self.wle[filt])], 
+                                    yerr=err_residuals[wl_residuals==self.wle[filt]], 
                                     fmt='o',
                                     color=colors.get(filt, 'k'),
                                     mec='k')
-
-                        elif plot:
-                            ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]], 
-                                        np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
-                                        yerr=err_residuals[wl_residuals==self.wle[filt]], 
-                                        fmt='o',
-                                        color=colors.get(filt, 'k'),
-                                        mec='k')
                             
-                    except:
-                        print('Problem plotting {} data for {}'.format(filt, sn.name))
-                        print('(had NaNs in mag residuals)')
+                    # except Exception as e:
+                    #     print('Problem plotting {} data for {}'.format(filt, sn.name))
+                    #     print('(had NaNs in mag residuals)')
                         
                 if plot:
                     ax.invert_yaxis()
