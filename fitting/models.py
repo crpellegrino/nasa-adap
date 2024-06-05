@@ -703,8 +703,8 @@ class GP(Fitter):
             if len(sn.shifted_data) == 0:
                 ### Check to see if we've already tried to fit for maximum
                 if sn.info.get('searched', False):
-                    ### Fitting for max was already tried for all filters
-                    shifted_mjd, shifted_mag, err = [], [], []
+                    ### Fitting for max was already tried, so let's use the best filter
+                    shifted_mjd, shifted_mag, err = sn.shift_to_max(sn.info.get('peak_filt', filt))
                 else:
                     ### Try to fit for max for the first time
                     shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
@@ -988,7 +988,7 @@ class GP3D(GP):
             if len(inds) == 0:
                 continue
             
-            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 6, w=1/all_template_errs[inds])
+            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 4, w=1/all_template_errs[inds])
             fit = np.poly1d(fit_coeffs)
             grid_mags = fit(phase_grid)
             
