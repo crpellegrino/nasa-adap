@@ -779,7 +779,7 @@ class GP(Fitter):
                     mean_prediction + 1.96*std_prediction,
                     alpha=0.5,
                     color='lightgray',
-                    label='?2-sigma Error',
+                    label='95\% confidence region',
                     zorder=10
             )
             plt.gca().invert_yaxis()
@@ -1107,13 +1107,18 @@ class GP3D(GP):
         return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
 
 
-    def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False, interactive=False):
+    def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, subtract_median=False, subtract_polynomial=False, interactive=False):
 
         if fit_residuals:
             all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
             kernel_params = []
             gaussian_processes = []
-            phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            if subtract_polynomial:
+                phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            elif subtract_median:
+                phase_grid, wl_grid, mag_grid, err_grid = self.construct_median_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            else:
+                raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
             for sn in self.collection.sne:
                 phase_residuals, wl_residuals, mag_residuals, err_residuals = self.subtract_data_from_grid(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
                 x = np.vstack((phase_residuals, wl_residuals)).T
@@ -1208,10 +1213,10 @@ class GP3D(GP):
                     plt.legend()
                     plt.show()
 
-                    if median_combine_gps and interactive:
+                    if subtract_median and interactive:
                         use_for_template = input('Use this fit to construct a template? y/n')
 
-                if median_combine_gps:
+                if subtract_median:
                     # if log_transform is not False:
                     #     test_times_linear = np.arange(phasemin, phasemax, 1./24)
                     #     test_times = np.log(test_times_linear + log_transform)
@@ -1242,7 +1247,7 @@ class GP3D(GP):
                         gaussian_processes.append(test_prediction.reshape((len(x), -1)))
                 kernel_params.append(gaussian_process.kernel_.theta)
 
-            if median_combine_gps:
+            if subtract_median:
                 return gaussian_processes, phase_grid, wl_grid
             return None, phase_residuals, kernel_params
 
@@ -1265,9 +1270,9 @@ class GP3D(GP):
             return gaussian_process, X_test, None
 
 
-    def predict_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=False, median_combine_gps=False):
+    def predict_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=False, subtract_median=False):
 
-        if not median_combine_gps:#test_size is not None:
+        if not subtract_median:#test_size is not None:
             ### Fitting sample of SNe altogether
         
             gaussian_process, X_test, kernel_params = self.run_gp(filtlist, phasemin, phasemax, test_size=test_size, plot=plot, log_transform=log_transform, fit_residuals=fit_residuals)
@@ -1309,14 +1314,14 @@ class GP3D(GP):
                     plt.legend()
                     plt.show()
 
-        elif median_combine_gps:
+        elif subtract_median:
             ### We're fitting each SN individually and then median combining the full 2D GP
             gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
                                                                   phasemax, plot=plot, 
                                                                   log_transform=log_transform, 
                                                                   fit_residuals=fit_residuals, 
                                                                   set_to_normalize=set_to_normalize, 
-                                                                  median_combine_gps=True)
+                                                                  subtract_median=True)
             
             median_gp = np.median(np.dstack(gaussian_processes), -1)
             fig = plt.figure()
