@@ -373,7 +373,8 @@ class SN:
             ax.errorbar(fit_mjds, fit_mags, yerr=fit_errs, fmt='o', color='blue', label='Used in Fitting')
             ax.errorbar(mean(peak_mjds), mean(peak_mags), xerr=stdev(peak_mjds), yerr=stdev(peak_mags), color='red', fmt='o', label='Best Fit Peak')
             plt.xlim(guess_mjd_max-10, guess_mjd_max+10)
-            plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
+            if len(mjd_array[inds_to_fit]) > 0:
+                plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
             plt.xlabel('MJD')
             plt.ylabel('Apparent Magnitude')
             plt.title(self.name)
@@ -702,12 +703,16 @@ class GP(Fitter):
 
             if len(sn.shifted_data) == 0:
                 ### Check to see if we've already tried to fit for maximum
-                if sn.info.get('searched', False):
-                    ### Fitting for max was already tried, so let's use the best filter
-                    shifted_mjd, shifted_mag, err = sn.shift_to_max(sn.info.get('peak_filt', filt))
+                if not sn.info:
+                    continue
                 else:
-                    ### Try to fit for max for the first time
                     shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
+                # if sn.info.get('searched', False):
+                #     ### Fitting for max was already tried, so let's use the best filter
+                #     shifted_mjd, shifted_mag, err = sn.shift_to_max(sn.info.get('peak_filt', filt))
+                # else:
+                #     ### Try to fit for max for the first time
+                #     shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             else:
                 ### We already successfully fit for peak, so get the shifted photometry for this filter
                 shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
@@ -988,17 +993,18 @@ class GP3D(GP):
             if len(inds) == 0:
                 continue
             
-            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 4, w=1/all_template_errs[inds])
+            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 3, w=1/all_template_errs[inds])
             fit = np.poly1d(fit_coeffs)
             grid_mags = fit(phase_grid)
             
             mag_grid[:,j] = grid_mags
-            err_grid[:,j] = np.ones(len(phase_grid)) * np.median(all_template_mags[inds] - fit(all_template_phases[inds]))
+            err_grid[:,j] = np.ones(len(phase_grid)) * np.median(abs(all_template_mags[inds] - fit(all_template_phases[inds])))
             
-            # plt.fill_between(phase_grid, grid_mags - err_grid[:,j], grid_mags + err_grid[:, j], alpha=0.5)
-            # plt.scatter(all_template_phases[inds], all_template_mags[inds], marker='o', color='k')
-            # plt.plot(phase_grid, grid_mags, color='blue')
-            # plt.show()
+            plt.fill_between(phase_grid, grid_mags - err_grid[:,j], grid_mags + err_grid[:, j], alpha=0.5)
+            plt.errorbar(all_template_phases[inds], all_template_mags[inds], yerr=all_template_errs[inds], marker='o', color='k')
+            plt.plot(phase_grid, grid_mags, color='blue')
+            plt.gca().invert_yaxis()
+            plt.show()
 
         if plot:
             fig = plt.figure()
