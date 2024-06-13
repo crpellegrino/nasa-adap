@@ -373,7 +373,8 @@ class SN:
             ax.errorbar(fit_mjds, fit_mags, yerr=fit_errs, fmt='o', color='blue', label='Used in Fitting')
             ax.errorbar(mean(peak_mjds), mean(peak_mags), xerr=stdev(peak_mjds), yerr=stdev(peak_mags), color='red', fmt='o', label='Best Fit Peak')
             plt.xlim(guess_mjd_max-10, guess_mjd_max+10)
-            plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
+            if len(mjd_array[inds_to_fit]) > 0:
+                plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
             plt.xlabel('MJD')
             plt.ylabel('Apparent Magnitude')
             plt.title(self.name)
@@ -702,12 +703,16 @@ class GP(Fitter):
 
             if len(sn.shifted_data) == 0:
                 ### Check to see if we've already tried to fit for maximum
-                if sn.info.get('searched', False):
-                    ### Fitting for max was already tried, so let's use the best filter
-                    shifted_mjd, shifted_mag, err = sn.shift_to_max(sn.info.get('peak_filt', filt))
+                if not sn.info:
+                    continue
                 else:
-                    ### Try to fit for max for the first time
                     shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
+                # if sn.info.get('searched', False):
+                #     ### Fitting for max was already tried, so let's use the best filter
+                #     shifted_mjd, shifted_mag, err = sn.shift_to_max(sn.info.get('peak_filt', filt))
+                # else:
+                #     ### Try to fit for max for the first time
+                #     shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             else:
                 ### We already successfully fit for peak, so get the shifted photometry for this filter
                 shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
@@ -958,7 +963,7 @@ class GP3D(GP):
     
 
     def construct_polynomial_grid(self, phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=False, plot=False):
-        
+                
         if log_transform is not False:
             phase_grid_linear = np.arange(phasemin, phasemax, 1/24.) # Grid of phases to iterate over, by hour
             phase_grid = np.log(phase_grid_linear + log_transform) # Grid of phases in log space
@@ -988,17 +993,19 @@ class GP3D(GP):
             if len(inds) == 0:
                 continue
             
-            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 4, w=1/all_template_errs[inds])
+            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 3, w=1/(np.sqrt(all_template_errs[inds])**2 + (np.ones(len(all_template_errs[inds])) * 0.05)**2))
             fit = np.poly1d(fit_coeffs)
             grid_mags = fit(phase_grid)
             
             mag_grid[:,j] = grid_mags
-            err_grid[:,j] = np.ones(len(phase_grid)) * np.median(all_template_mags[inds] - fit(all_template_phases[inds]))
+            err_grid[:,j] = np.ones(len(phase_grid)) * np.median(abs(all_template_mags[inds] - fit(all_template_phases[inds])))
             
-            # plt.fill_between(phase_grid, grid_mags - err_grid[:,j], grid_mags + err_grid[:, j], alpha=0.5)
-            # plt.scatter(all_template_phases[inds], all_template_mags[inds], marker='o', color='k')
-            # plt.plot(phase_grid, grid_mags, color='blue')
-            # plt.show()
+            # if plot:
+            #     plt.fill_between(phase_grid, grid_mags - err_grid[:,j], grid_mags + err_grid[:, j], alpha=0.5)
+            #     plt.errorbar(all_template_phases[inds], all_template_mags[inds], yerr=all_template_errs[inds], fmt='o', color='k')
+            #     plt.plot(phase_grid, grid_mags, color='blue')
+            #     plt.gca().invert_yaxis()
+            #     plt.show()
 
         if plot:
             fig = plt.figure()
@@ -1225,26 +1232,59 @@ class GP3D(GP):
                     # test_waves = np.arange(min([self.wle[f] for f in filtlist])-500, max([self.wle[f] for f in filtlist])+500, 99.5)
                     
                     #x, y = np.meshgrid(test_times, test_waves)
-                    x, y = np.meshgrid(phase_grid, wl_grid)
+                    # min_waves_for_sn = min([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
+                    # max_waves_for_sn = max([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
+                    # if log_transform is not None:
+                    #     waves_to_predict_linear = np.arange(min_waves_for_sn-500, max_waves_for_sn+500, 99.5)
+                    #     waves_to_predict = np.log10(waves_to_predict_linear)
+                    # else:
+                    #     waves_to_predict = np.arange(min_waves_for_sn-500, max_waves_for_sn+500, 99.5)
+
+                    if log_transform is not None:
+                        waves_to_predict_linear = np.asarray([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
+                        waves_to_predict = np.log10(waves_to_predict_linear)
+                        diffs = abs(np.subtract.outer(10**wl_grid, waves_to_predict_linear))
+
+                    else:
+                        waves_to_predict = np.asarray([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
+                        diffs = abs(np.subtract.outer(wl_grid, waves_to_predict))
+                    
+                    ### Compare the wavelengths of our filters to those in the wl grid
+                    ### and fit for those grid wls that are within 200 A of one of our filters
+                    wl_inds_fitted = np.unique(np.where((diffs < 100.))[0])
+
+                    x, y = np.meshgrid(phase_grid, wl_grid[wl_inds_fitted])#waves_to_predict)#wl_grid)
                     test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
                     test_prediction = np.asarray(test_prediction)
-                    
-                    fig = plt.figure()
-                    ax = fig.add_subplot(111, projection='3d')
-                    ax.plot_surface(x, y, test_prediction.reshape((len(x), -1)))
-                    ax.invert_zaxis()
-                    ax.set_xlabel('Phase Grid')
-                    ax.set_ylabel('Wavelengths')
-                    ax.set_zlabel('Magnitude')
-                    plt.show()
-                    
-                    #print('Max GP prediction: ', max([max(row) for row in test_prediction.reshape((len(x), -1))]))
+                                        
+                    ### Put the fitted wavelengths back in the right spot on the grid
+                    ### and append to the gaussian processes array
+                    test_prediction_reshaped = test_prediction.reshape((len(x), -1))
+                    gp_grid = np.empty((len(wl_grid), len(phase_grid)))#np.empty((len(wl_grid), len(phase_grid)))
+                    gp_grid[:] = np.nan
+                    for i, col in enumerate(test_prediction_reshaped[:,]):
+                        #print(col)
+                        #print(col.shape)
+                        current_wl_grid_ind = wl_inds_fitted[i]
+                        gp_grid[current_wl_grid_ind, :] = col
+
+                    if plot:
+                        fig = plt.figure()
+                        ax = fig.add_subplot(111, projection='3d')
+                        ax.plot_surface(x, y, test_prediction_reshaped)
+                        ax.invert_zaxis()
+                        ax.set_xlabel('Phase Grid')
+                        ax.set_ylabel('Wavelengths')
+                        ax.set_zlabel('Magnitude')
+                        plt.show()
+
                     if not plot:
                         use_for_template = 'y'
                     elif not interactive:
                         use_for_template = 'y'
                     if use_for_template == 'y':
-                        gaussian_processes.append(test_prediction.reshape((len(x), -1)))
+                        #gaussian_processes.append(test_prediction.reshape((len(x), -1)))
+                        gaussian_processes.append(gp_grid)
                 kernel_params.append(gaussian_process.kernel_.theta)
 
             if subtract_median:
@@ -1323,7 +1363,7 @@ class GP3D(GP):
                                                                   set_to_normalize=set_to_normalize, 
                                                                   subtract_median=True)
             
-            median_gp = np.median(np.dstack(gaussian_processes), -1)
+            median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
             
@@ -1335,6 +1375,7 @@ class GP3D(GP):
             Z = median_gp
 
             ax.plot_surface(X, Y, Z)
+            #ax.axes.set_zlim3d(bottom=-5, top=5)
             ax.invert_zaxis()
             ax.set_xlabel('Phase Grid')
             ax.set_ylabel('Wavelengths')
