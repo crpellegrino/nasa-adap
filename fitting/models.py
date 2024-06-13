@@ -1251,7 +1251,7 @@ class GP3D(GP):
                 return gaussian_processes, phase_grid, wl_grid
             return None, phase_residuals, kernel_params
 
-        else:
+        else: # if fit_residuals=False
             all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=plot)
             x = np.vstack((all_phases, all_wls)).T
             y = all_mags
