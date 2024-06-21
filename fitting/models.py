@@ -291,13 +291,13 @@ class SN:
                     if abs(phot['mjd'] - min_nondetection) > 0.5 or abs(phot['mjd'] - max_nondetection) > 0.5:
                         continue
                     else:
-                        phot['flux'] = self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']) * 1e15
-                        phot['fluxerr'] = 1.086 * phot['err'] * phot['flux']
+                        phot['flux'] = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']))# * 1e15
+                        phot['fluxerr'] = phot['err']#1.086 * phot['err'] * phot['flux']
                         #self.data[filt][i] = phot
                         new_phot.append(phot)
                 else:
-                    phot['flux'] = self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']) * 1e15
-                    phot['fluxerr'] = 1.086 * phot['err'] * phot['flux']
+                    phot['flux'] = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']))# * 1e15
+                    phot['fluxerr'] = phot['err']#1.086 * phot['err'] * phot['flux']
                     #self.data[filt][i] = phot
                     new_phot.append(phot)
 
@@ -340,15 +340,15 @@ class SN:
                             continue
                         else:
                             unshifted_mag = phot['mag'] + self.info['peak_mag']
-                            shifted_flux = (self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag) - self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) * 1e15
+                            shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag)) - np.log10(self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) #* 1e15
                             phot['flux'] = shifted_flux
-                            phot['fluxerr'] = 1.086 * phot['err'] * self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag) * 1e15
+                            phot['fluxerr'] = phot['err']#abs(1.086 * phot['err'] * np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag))) # * 1e15
                             new_phot.append(phot)
                     else:
                         unshifted_mag = phot['mag'] + self.info['peak_mag']
-                        shifted_flux = (self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag) - self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) * 1e15
+                        shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag)) - np.log10(self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) #* 1e15
                         phot['flux'] = shifted_flux
-                        phot['fluxerr'] = 1.086 * phot['err'] * self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag) * 1e15
+                        phot['fluxerr'] = phot['err']#abs(1.086 * phot['err'] * np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag))) # * 1e15
                         new_phot.append(phot)
 
                 self.shifted_data[filt] = new_phot
@@ -1361,9 +1361,9 @@ class GP3D(GP):
                 if plot:
                     if not use_fluxes:
                         ax.invert_yaxis()
-                        ax.set_ylabel('Magnitude Residual')
+                        ax.set_ylabel('Magnitude Relative to Peak')
                     else:
-                        ax.set_ylabel('Flux Residual')
+                        ax.set_ylabel('Flux Relative to Peak')
 
                     ax.set_xlabel('Normalized Time [days]')
                     plt.title(sn.name)
