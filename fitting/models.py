@@ -1215,7 +1215,7 @@ class GP3D(GP):
                 if plot:
                     ax.invert_yaxis()
                     ax.set_xlabel('Normalized Time [days]')
-                    ax.set_ylabel('Magnitude Residual')
+                    ax.set_ylabel('Magnitude relative to Peak Mag')
                     plt.title(sn.name)
                     plt.legend()
                     plt.show()
