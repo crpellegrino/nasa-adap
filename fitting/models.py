@@ -521,7 +521,7 @@ class SN:
             self.load_json_data()
 
         if filt not in self.data.keys():
-            return [], [], []
+            return [], [], [], []
 
         if not self.info.get('peak_mjd') and not self.info.get('peak_mag'):
             self.fit_for_max(filt, shift_array=shift_array, plot=plot, offset=offset)
@@ -539,7 +539,7 @@ class SN:
                     self.info['searched'] = True
         
         if not self.info.get('peak_mag', 0) > 0:
-            return [], [], []
+            return [], [], [], []
 
         mjds = np.asarray([phot['mjd'] for phot in self.data[filt]]) - self.info['peak_mjd']
         mags = np.asarray([phot['mag'] for phot in self.data[filt]]) - self.info['peak_mag']
@@ -566,9 +566,9 @@ class SN:
             shifted_flux = np.asarray([phot['flux'] for phot in self.shifted_data[filt]])
             shifted_err = np.asarray([phot['fluxerr'] for phot in self.shifted_data[filt]])
 
-            return shifted_mjd, shifted_flux, shifted_err
+            return shifted_mjd, shifted_flux, shifted_err, nondets
 
-        return mjds, mags, errs
+        return mjds, mags, errs, nondets
     
 
     def interactively_fit_for_max(self, filt='', shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=True, offset=0, save_to_caat=False, force=False):
@@ -585,7 +585,7 @@ class SN:
             if filt == 'skip':
                 return 
             
-        mjds, _, _ = self.shift_to_max(filt, shift_array=shift_array, plot=plot, offset=offset)
+        mjds, _, _, _ = self.shift_to_max(filt, shift_array=shift_array, plot=plot, offset=offset)
 
         if len(mjds) == 0:
             refit = input('No photometry found for this filter. Try to refit? y/n \n')
@@ -679,7 +679,7 @@ class SNCollection:
 
         for i,f in enumerate(filts_to_plot):
             for sn in sne:
-                mjds, mags, errs = sn.shift_to_max(f)
+                mjds, mags, errs, nondets = sn.shift_to_max(f)
                 if len(mjds) == 0:
                     continue
                 if log_transform is not False:
@@ -840,7 +840,7 @@ class GP(Fitter):
                 if not sn.info:
                     continue
                 else:
-                    shifted_mjd, shifted_mag, err = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
+                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
                 # if sn.info.get('searched', False):
                 #     ### Fitting for max was already tried, so let's use the best filter
                 #     shifted_mjd, shifted_mag, err = sn.shift_to_max(sn.info.get('peak_filt', filt))
@@ -849,7 +849,7 @@ class GP(Fitter):
                 #     shifted_mjd, shifted_mag, err = sn.shift_to_max(filt)
             else:
                 ### We already successfully fit for peak, so get the shifted photometry for this filter
-                shifted_mjd, shifted_mag, err = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
+                shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
                     
             if len(shifted_mjd) == 0:
                 continue
@@ -1186,14 +1186,14 @@ class GP3D(GP):
     def subtract_data_from_grid(self, sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=False, plot=False, use_fluxes=False):
 
         ### Subtract off templates for each SN LC
-        phase_residuals, wl_residuals, mag_residuals, err_residuals = [], [], [], []
+        residuals = {}
         for filt in filtlist:
 
             if len(sn.shifted_data) == 0:
                 if sn.info.get('searched', False):
-                    shifted_mjd, shifted_mag, err = [], [], []
+                    shifted_mjd, shifted_mag, err, nondets = [], [], [], []
                 else:
-                    shifted_mjd, shifted_mag, err = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
+                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
             else:
                 if filt not in sn.shifted_data.keys():
                     continue
@@ -1201,9 +1201,11 @@ class GP3D(GP):
                     sn.convert_to_fluxes()
                     shifted_mag = np.asarray([phot['flux'] for phot in sn.shifted_data[filt]])
                     err = np.asarray([phot['fluxerr'] for phot in sn.shifted_data[filt]])
+                    nondets = np.asarray([phot.get('nondetection', False) for phot in sn.shifted_data[filt]])
                 else:
                     shifted_mag = np.asarray([phot['mag'] for phot in sn.shifted_data[filt]])
                     err = np.asarray([phot['err'] for phot in sn.shifted_data[filt]])
+                    nondets = np.asarray([phot.get('nondetection', False) for phot in sn.shifted_data[filt]])
                 
                 shifted_mjd = np.asarray([phot['mjd'] for phot in sn.shifted_data[filt]])
             
@@ -1222,6 +1224,7 @@ class GP3D(GP):
             phases = shifted_mjd[inds_to_fit]
             mags = shifted_mag[inds_to_fit]
             errs = err[inds_to_fit]
+            current_nondets = nondets[inds_to_fit]
 
             if plot and len(phases) > 0:
                 print('Plotting for filter ', filt)
@@ -1239,17 +1242,19 @@ class GP3D(GP):
                     print("NaN Found")
                     continue
                 
-                phase_residuals.append(phase)
                 if log_transform is not None:
-                    wl_residuals.append(np.log10(self.wle[filt]))
+                    wl_residual = np.log10(self.wle[filt])
                 else:
-                    wl_residuals.append(self.wle[filt])
-                mag_residuals.append(mags[i] - mag_grid[phase_inds[0], wl_inds[0]])
-                #err_residuals.append(np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2))
-                err_residuals.append(errs[i])
+                    wl_residual = self.wle[filt]
+
+                residuals.setdefault(filt, []).extend([{'phase_residual': phase,
+                                                       'wl_residual': wl_residual,
+                                                       'mag_residual': mags[i] - mag_grid[phase_inds[0], wl_inds[0]],
+                                                       'err_residual': errs[i],
+                                                       'mag': mags[i],
+                                                       'nondetection': current_nondets[i]}])
 
                 if plot:
-                    #template_inds = np.where((wl_grid==self.wle[filt]))[0]
                     ax.errorbar(phase, mags[i] - mag_grid[phase_inds[0], wl_inds[0]], yerr=np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2), marker='o', color='k')
                     ax.errorbar(phase, mags[i], yerr=errs[i], fmt='o', color=colors.get(filt, 'k'))
                                
@@ -1261,7 +1266,7 @@ class GP3D(GP):
                 plt.legend()
                 plt.show()
 
-        return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
+        return residuals
 
 
     def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False, interactive=False, use_fluxes=False):
@@ -1272,7 +1277,13 @@ class GP3D(GP):
             gaussian_processes = []
             phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
             for sn in self.collection.sne:
-                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.subtract_data_from_grid(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False, use_fluxes=use_fluxes)
+                residuals = self.subtract_data_from_grid(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False, use_fluxes=use_fluxes)
+
+                phase_residuals = np.asarray([p['phase_residual'] for phot_list in residuals.values() for p in phot_list])
+                wl_residuals = np.asarray([p['wl_residual'] for phot_list in residuals.values() for p in phot_list])
+                mag_residuals = np.asarray([p['mag_residual'] for phot_list in residuals.values() for p in phot_list])
+                err_residuals = np.asarray([p['err_residual'] for phot_list in residuals.values() for p in phot_list])
+
                 x = np.vstack((phase_residuals, wl_residuals)).T
                 y = mag_residuals
                 if len(y) < 2:
@@ -1335,16 +1346,21 @@ class GP3D(GP):
                     else:
                         inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
 
-                    # try:
                     key_to_plot = 'flux' if use_fluxes else 'mag'
                     if log_transform is not False and plot:
-                        #print(wl_residuals, np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit])
-                        ax.errorbar(np.exp(phase_residuals[wl_residuals==np.log10(self.wle[filt])]) - log_transform, 
-                                np.asarray([p[key_to_plot] for p in sn.shifted_data[filt]])[inds_to_fit],
-                                yerr=err_residuals[wl_residuals==np.log10(self.wle[filt])], 
-                                fmt='o',
-                                color=colors.get(filt, 'k'),
-                                mec='k')
+
+                        ax.errorbar(np.exp(np.asarray([p['phase_residual'] for p in residuals[filt] if p['phase_residual'] > np.log(phasemin+log_transform) and p['phase_residual'] < np.log(phasemax+log_transform) and not p['nondetection']])) - log_transform,
+                                    [p['mag'] for p in residuals[filt] if p['phase_residual'] > np.log(phasemin+log_transform) and p['phase_residual'] < np.log(phasemax+log_transform) and not p['nondetection']],
+                                    yerr=[p['err_residual'] for p in residuals[filt] if p['phase_residual'] > np.log(phasemin+log_transform) and p['phase_residual'] < np.log(phasemax+log_transform) and not p['nondetection']],
+                                    fmt='o',
+                                    color=colors.get(filt, 'k'),
+                                    mec='k')
+                        
+                        ax.scatter(np.exp(np.asarray([p['phase_residual'] for p in residuals[filt] if p['phase_residual'] > np.log(phasemin+log_transform) and p['phase_residual'] < np.log(phasemax+log_transform) and p['nondetection']])) - log_transform,
+                                    [p['mag'] for p in residuals[filt] if p['phase_residual'] > np.log(phasemin+log_transform) and p['phase_residual'] < np.log(phasemax+log_transform) and p['nondetection']],
+                                    marker='v',
+                                    color=colors.get(filt, 'k'),
+                                    alpha=0.5)
 
                     elif plot:
                         ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]], 
@@ -1353,10 +1369,6 @@ class GP3D(GP):
                                     fmt='o',
                                     color=colors.get(filt, 'k'),
                                     mec='k')
-                            
-                    # except Exception as e:
-                    #     print('Problem plotting {} data for {}'.format(filt, sn.name))
-                    #     print('(had NaNs in mag residuals)')
                         
                 if plot:
                     if not use_fluxes:
@@ -1374,51 +1386,63 @@ class GP3D(GP):
                         use_for_template = input('Use this fit to construct a template? y/n')
 
                 if median_combine_gps:
-                    # if log_transform is not False:
-                    #     test_times_linear = np.arange(phasemin, phasemax, 1./24)
-                    #     test_times = np.log(test_times_linear + log_transform)
-                    # else:
-                    #     test_times = np.arange(phasemin, phasemax, 1./24)
-                    # test_waves = np.arange(min([self.wle[f] for f in filtlist])-500, max([self.wle[f] for f in filtlist])+500, 99.5)
-                    
-                    #x, y = np.meshgrid(test_times, test_waves)
-                    # min_waves_for_sn = min([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
-                    # max_waves_for_sn = max([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
-                    # if log_transform is not None:
-                    #     waves_to_predict_linear = np.arange(min_waves_for_sn-500, max_waves_for_sn+500, 99.5)
-                    #     waves_to_predict = np.log10(waves_to_predict_linear)
-                    # else:
-                    #     waves_to_predict = np.arange(min_waves_for_sn-500, max_waves_for_sn+500, 99.5)
 
                     if log_transform is not None:
-                        waves_to_predict_linear = np.asarray([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
-                        waves_to_predict = np.log10(waves_to_predict_linear)
-                        diffs = abs(np.subtract.outer(10**wl_grid, waves_to_predict_linear))
+                        #waves_to_predict_linear = np.asarray([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
+                        waves_to_predict = np.unique(wl_residuals) #np.log10(waves_to_predict_linear)
+                        diffs = abs(np.subtract.outer(10**wl_grid, 10**waves_to_predict))#waves_to_predict_linear))
 
                     else:
-                        waves_to_predict = np.asarray([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
+                        waves_to_predict = np.unique(wl_residuals) #np.asarray([self.wle[f] for f in sn.data.keys() if f in self.wle.keys()])
                         diffs = abs(np.subtract.outer(wl_grid, waves_to_predict))
-                    
-                    ### Compare the wavelengths of our filters to those in the wl grid
-                    ### and fit for those grid wls that are within 200 A of one of our filters
-                    wl_inds_fitted = np.unique(np.where((diffs < 100.))[0])
 
-                    x, y = np.meshgrid(phase_grid, wl_grid[wl_inds_fitted])#waves_to_predict)#wl_grid)
+                    ### Compare the wavelengths of our filters to those in the wl grid
+                    ### and fit for those grid wls that are within 100 A of one of our filters
+                    ### NOTE: Right now this only gives the actual filter wavelengths themselves,
+                    ### nothing more!
+                    wl_inds_fitted = np.unique(np.where((diffs < 500.))[0])
+                    
+                    print(10**waves_to_predict)
+                    print(10**wl_grid[wl_inds_fitted])
+
+                    x, y = np.meshgrid(phase_grid, wl_grid[wl_inds_fitted])
                     test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
                     test_prediction = np.asarray(test_prediction)
+
+                    template_mags = []
+
+                    for wl_ind in wl_inds_fitted:#waves_to_predict:
+                        #if log_transform is not None:
+                        #    wl_inds = np.where((abs(10**wl_grid - wl) < 99.5))[0]
+                        #else:
+                        #    wl_inds = np.where((abs(wl_grid - wl) < 99.5))[0]
+                        
+                        for i in range(len(phase_grid)):
+                            template_mags.append(mag_grid[i, wl_ind])
+                            ###NOTE: Some of these template mags are NaNs
+
+                    template_mags = np.asarray(template_mags).reshape((len(x), -1))
                                         
                     ### Put the fitted wavelengths back in the right spot on the grid
                     ### and append to the gaussian processes array
-                    test_prediction_reshaped = test_prediction.reshape((len(x), -1))
-                    gp_grid = np.empty((len(wl_grid), len(phase_grid)))#np.empty((len(wl_grid), len(phase_grid)))
+                    test_prediction_reshaped = test_prediction.reshape((len(x), -1)) + template_mags
+                    gp_grid = np.empty((len(wl_grid), len(phase_grid)))
                     gp_grid[:] = np.nan
                     for i, col in enumerate(test_prediction_reshaped[:,]):
-                        #print(col)
-                        #print(col.shape)
                         current_wl_grid_ind = wl_inds_fitted[i]
                         gp_grid[current_wl_grid_ind, :] = col
 
                     if plot:
+
+                        # for col in gp_grid[:,]:
+                        #     ax.plot(np.exp(phase_grid) - log_transform, col, alpha=0.5, color='k')
+                        # if not use_fluxes:
+                        #     ax.invert_yaxis()
+                        #     ax.set_ylabel('Magnitudes')
+                        # else:
+                        #     ax.set_ylabel('Fluxes')
+                        # ax.set_xlabel('Phase')
+                        
                         fig = plt.figure()
                         ax = fig.add_subplot(111, projection='3d')
                         ax.plot_surface(x, y, test_prediction_reshaped)
@@ -1519,6 +1543,7 @@ class GP3D(GP):
                                                                   use_fluxes=use_fluxes)
             
             median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
+
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')
             
