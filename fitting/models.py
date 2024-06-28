@@ -945,16 +945,15 @@ class GP3D(GP):
     def interpolate_grid(grid, interp_array, filter_window=171):
         for i, row in enumerate(grid):
             notnan_inds = np.where((~np.isnan(row)))[0]
-            if len(notnan_inds) < 4:
-                continue
-            interp = interp1d(interp_array[notnan_inds],
-                              row[notnan_inds],
-                              'cubic')
+            if len(notnan_inds) > 4:
+                interp = interp1d(interp_array[notnan_inds],
+                                    row[notnan_inds],
+                                    'cubic')
 
-            interp_row = interp(interp_array[min(notnan_inds):max(notnan_inds)])
-            savgol_l = savgol_filter(interp_row, filter_window, 3, mode='mirror')
-            row[min(notnan_inds):max(notnan_inds)] = savgol_l
-            grid[i] = row
+                interp_row = interp(interp_array[min(notnan_inds):max(notnan_inds)])
+                savgol_l = savgol_filter(interp_row, filter_window, 3, mode='mirror')
+                row[min(notnan_inds):max(notnan_inds)] = savgol_l
+                grid[i] = row
         return grid   
       
 
@@ -1150,6 +1149,10 @@ class GP3D(GP):
             #     plt.plot(phase_grid, grid_mags, color='blue')
             #     plt.gca().invert_yaxis()
             #     plt.show()
+
+        ### Interpolate over the wavelengths to get a complete 2D grid
+        mag_grid = self.interpolate_grid(mag_grid, wl_grid, filter_window=31)
+        err_grid = self.interpolate_grid(err_grid, wl_grid, filter_window=31)
 
         if plot:
             fig = plt.figure()
@@ -1402,9 +1405,6 @@ class GP3D(GP):
                     ### nothing more!
                     wl_inds_fitted = np.unique(np.where((diffs < 500.))[0])
                     
-                    print(10**waves_to_predict)
-                    print(10**wl_grid[wl_inds_fitted])
-
                     x, y = np.meshgrid(phase_grid, wl_grid[wl_inds_fitted])
                     test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
                     test_prediction = np.asarray(test_prediction)
