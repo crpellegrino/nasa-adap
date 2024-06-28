@@ -263,100 +263,89 @@ class SN:
     def convert_to_fluxes(self):
 
         for filt in self.data:
-            if filt not in self.zps.keys():
-                continue
+            if filt in self.zps.keys():
 
-            ### For right now, let's only care about the nondetection closest to
-            ### both the first and last detection
-            detection_mjds = np.asarray([phot['mjd'] for phot in self.data[filt] if not phot.get('nondetection', False)])
-            if len(detection_mjds) == 0:
-                self.data[filt] = []
-                continue
-            min_detection = min(detection_mjds)
-            max_detection = max(detection_mjds)
+                ### For right now, let's only care about the nondetection closest to
+                ### both the first and last detection
+                detection_mjds = np.asarray([phot['mjd'] for phot in self.data[filt] if not phot.get('nondetection', False)])
+                if len(detection_mjds) > 0:
+                    min_detection = min(detection_mjds)
+                    max_detection = max(detection_mjds)
 
-            nondetection_mjds = np.asarray([phot['mjd'] for phot in self.data[filt] if phot.get('nondetection', False)])
-            if len(nondetection_mjds) == 0:
-                min_nondetection = 9e9
-                max_nondetection = 9e9
-            else:
-                min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
-                max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
-
-            new_phot = []
-            for i, phot in enumerate(self.data[filt]):
-                if phot.get('nondetection', False):
-                    ### Check if this is the closest nondetection to either 
-                    ### the first or last detection in this filter
-                    if abs(phot['mjd'] - min_nondetection) > 0.5 or abs(phot['mjd'] - max_nondetection) > 0.5:
-                        continue
+                    nondetection_mjds = np.asarray([phot['mjd'] for phot in self.data[filt] if phot.get('nondetection', False)])
+                    if len(nondetection_mjds) == 0:
+                        min_nondetection = 9e9
+                        max_nondetection = 9e9
                     else:
-                        phot['flux'] = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']))# * 1e15
-                        phot['fluxerr'] = phot['err']#1.086 * phot['err'] * phot['flux']
-                        #self.data[filt][i] = phot
-                        new_phot.append(phot)
-                else:
-                    phot['flux'] = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']))# * 1e15
-                    phot['fluxerr'] = phot['err']#1.086 * phot['err'] * phot['flux']
-                    #self.data[filt][i] = phot
-                    new_phot.append(phot)
+                        min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
+                        max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
 
-            self.data[filt] = new_phot
+                    new_phot = []
+                    for i, phot in enumerate(self.data[filt]):
+                        if phot.get('nondetection', False):
+                            ### Check if this is the closest nondetection to either 
+                            ### the first or last detection in this filter
+                            if abs(phot['mjd'] - min_nondetection) < 0.5 or abs(phot['mjd'] - max_nondetection) < 0.5:
+                                phot['flux'] = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']))# * 1e15
+                                phot['fluxerr'] = phot['err']#1.086 * phot['err'] * phot['flux']
+                                new_phot.append(phot)
+                        else:
+                            phot['flux'] = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*phot['mag']))# * 1e15
+                            phot['fluxerr'] = phot['err']#1.086 * phot['err'] * phot['flux']
+                            new_phot.append(phot)
+
+                    self.data[filt] = new_phot
+                
+                else:
+                    self.data[filt] = []
 
         if self.shifted_data:
             ### Get the flux at peak, subtract it from the other fluxes
             for filt in self.shifted_data:
-                if filt not in self.zps.keys():
-                    continue
+                if filt in self.zps.keys():
 
-                ### For right now, let's only care about the nondetection closest to
-                ### both the first and last detection
+                    ### For right now, let's only care about the nondetection closest to
+                    ### both the first and last detection
 
-                ### Here we can be a bit more careful and only pick the max/min detection within
-                ### a certain window around the time of peak, to avoid picking i.e. a max detection
-                ### that was spurious and occured a year after the SN
-                detection_mjds = np.asarray([phot['mjd'] for phot in self.shifted_data[filt] if not phot.get('nondetection', False) and phot['mjd'] > -20 and phot['mjd'] < 50])
-                if len(detection_mjds) == 0:
-                    self.shifted_data[filt] = []
-                    continue
-                min_detection = min(detection_mjds)
-                max_detection = max(detection_mjds)
+                    ### Here we can be a bit more careful and only pick the max/min detection within
+                    ### a certain window around the time of peak, to avoid picking i.e. a max detection
+                    ### that was spurious and occured a year after the SN
+                    detection_mjds = np.asarray([phot['mjd'] for phot in self.shifted_data[filt] if not phot.get('nondetection', False) and phot['mjd'] > -20 and phot['mjd'] < 50])
+                    if len(detection_mjds) > 0:
+                        min_detection = min(detection_mjds)
+                        max_detection = max(detection_mjds)
 
-                nondetection_mjds = np.asarray([phot['mjd'] for phot in self.shifted_data[filt] if phot.get('nondetection', False)])
-                if len(nondetection_mjds) == 0:
-                    min_nondetection = 9e9
-                    max_nondetection = 9e9
-                else:
-                    min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
-                    max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
-
-                new_phot = []
-
-                for i, phot in enumerate(self.shifted_data[filt]):
-                    if phot.get('nondetection', False):
-                        ### Check if this is the closest nondetection to either 
-                        ### the first or last detection in this filter
-                        if abs(phot['mjd'] - min_nondetection) > 0.5 or abs(phot['mjd'] - max_nondetection) > 0.5:
-                            continue
+                        nondetection_mjds = np.asarray([phot['mjd'] for phot in self.shifted_data[filt] if phot.get('nondetection', False)])
+                        if len(nondetection_mjds) == 0:
+                            min_nondetection = 9e9
+                            max_nondetection = 9e9
                         else:
-                            unshifted_mag = phot['mag'] + self.info['peak_mag']
-                            shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag)) - np.log10(self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) #* 1e15
-                            phot['flux'] = shifted_flux
-                            phot['fluxerr'] = phot['err']#abs(1.086 * phot['err'] * np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag))) # * 1e15
-                            new_phot.append(phot)
-                    else:
-                        unshifted_mag = phot['mag'] + self.info['peak_mag']
-                        shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag)) - np.log10(self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) #* 1e15
-                        phot['flux'] = shifted_flux
-                        phot['fluxerr'] = phot['err']#abs(1.086 * phot['err'] * np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag))) # * 1e15
-                        new_phot.append(phot)
+                            min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
+                            max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
 
-                self.shifted_data[filt] = new_phot
-                    # unshifted_mag = phot['mag'] + self.info['peak_mag']
-                    # shifted_flux = (self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag) - self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) * 1e15
-                    # phot['flux'] = shifted_flux
-                    # phot['fluxerr'] = 1.086 * phot['err'] * self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag) * 1e15
-                    # #self.shifted_data[filt][i] = phot
+                        new_phot = []
+
+                        for i, phot in enumerate(self.shifted_data[filt]):
+                            if phot.get('nondetection', False):
+                                ### Check if this is the closest nondetection to either 
+                                ### the first or last detection in this filter
+                                if abs(phot['mjd'] - min_nondetection) < 0.5 or abs(phot['mjd'] - max_nondetection) < 0.5:
+                                    unshifted_mag = phot['mag'] + self.info['peak_mag']
+                                    shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag)) - np.log10(self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) #* 1e15
+                                    phot['flux'] = shifted_flux
+                                    phot['fluxerr'] = phot['err']
+                                    new_phot.append(phot)
+                            else:
+                                unshifted_mag = phot['mag'] + self.info['peak_mag']
+                                shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag)) - np.log10(self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) #* 1e15
+                                phot['flux'] = shifted_flux
+                                phot['fluxerr'] = phot['err']
+                                new_phot.append(phot)
+
+                        self.shifted_data[filt] = new_phot
+                    
+                    else:
+                        self.shifted_data[filt] = []
 
 
     def plot_data(self, filts_to_plot=['all'], shifted_data_exists=False, view_shifted_data=False, offset=0, plot_fluxes=False):
@@ -565,6 +554,7 @@ class SN:
             shifted_mjd = np.asarray([phot['mjd'] for phot in self.shifted_data[filt]])
             shifted_flux = np.asarray([phot['flux'] for phot in self.shifted_data[filt]])
             shifted_err = np.asarray([phot['fluxerr'] for phot in self.shifted_data[filt]])
+            nondets = np.asarray([phot.get('nondetection', False) for phot in self.shifted_data[filt]])
 
             return shifted_mjd, shifted_flux, shifted_err, nondets
 
@@ -664,7 +654,7 @@ class SNCollection:
         #Maybe this lives in a separate class that handles the csv db file
         raise NotImplementedError
 
-    def plot_all_lcs(self, filts=['all'], log_transform=False):
+    def plot_all_lcs(self, filts=['all'], log_transform=False, plot_fluxes=False):
         """plot all light curves of given subtype/collection
             can plot single, multiple or all bands"""
         sne = self.sne
@@ -679,12 +669,20 @@ class SNCollection:
 
         for i,f in enumerate(filts_to_plot):
             for sn in sne:
-                mjds, mags, errs, nondets = sn.shift_to_max(f)
+                mjds, mags, errs, nondets = sn.shift_to_max(f, shift_fluxes=plot_fluxes)
                 if len(mjds) == 0:
                     continue
                 if log_transform is not False:
                     mjds = sn.log_transform_time(mjds, phase_start=log_transform)
-                ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
+
+                if plot_fluxes:
+
+                    nondet_inds = np.where((nondets==False))[0]
+                    det_inds = np.where((nondets==True))[0]
+                    ax.errorbar(mjds[nondet_inds], mags[nondet_inds], yerr=errs[nondet_inds], fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
+                    ax.scatter(mjds[det_inds], mags[det_inds], marker='v', alpha=0.2, color=colors.get(f, 'k'))
+                else:
+                    ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
             filtText = f+'\n'
             plt.figtext(0.95, 0.75-(0.05*i), filtText, fontsize=14,color=colors.get(f))
 
@@ -695,8 +693,12 @@ class SNCollection:
             ax.set_xlabel('Shifted Time [days]')
         else:
             ax.set_xlabel('Log(Shifted Time)')
-        ax.set_ylabel('Shifted Magnitudes')
-        plt.gca().invert_yaxis()
+
+        if plot_fluxes:
+            ax.set_ylabel('Shifted Fluxes')
+        else:
+            ax.set_ylabel('Shifted Magnitudes')
+            plt.gca().invert_yaxis()
         plt.title('Lightcurves for collection of {} objects\nType:{}, Subtype:{}'.format(len(sne),self.type,self.subtype))
         plt.show()
 
@@ -1084,7 +1086,7 @@ class GP3D(GP):
             ax.invert_zaxis()
             ax.set_xlabel('Phase Grid')
             ax.set_ylabel('Wavelengths [nm]')
-            ax.set_zlabel('Magnitude')
+            #ax.set_zlabel('Magnitude')
             plt.show()
 
             for filt in filtlist:
@@ -1169,7 +1171,7 @@ class GP3D(GP):
             ax.invert_zaxis()
             ax.set_xlabel('Phase Grid')
             ax.set_ylabel('Wavelengths [nm]')
-            ax.set_zlabel('Magnitude')
+            #ax.set_zlabel('Magnitude')
             plt.show()
 
             # for filt in filtlist:
