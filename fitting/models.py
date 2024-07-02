@@ -10,6 +10,10 @@ from statistics import mean, stdev
 import warnings
 from scipy.signal import savgol_filter
 from scipy.interpolate import interp1d
+from extinction import fm07 as fm
+from astropy.coordinates import SkyCoord
+import astropy.units as u
+from dustmaps.sfd import SFDQuery
 
 from typing import Union, Optional
 
@@ -60,13 +64,42 @@ class CAAT:
         
         else:
             sndb.to_csv(db_loc, index=False)
-            
-    
+
+
+    @staticmethod
+    def read_info_from_tns_file(tns_file, sn_names, col_names):
+        ### Read values from a TNS CSV file, given a list of SN names 
+        ### to query and a list of the names of columns to get
+
+        #First, sanitize the names if not in TNS format (no SN or AT)
+        sn_names = [sn_name.replace('SN', '').replace('AT', '') for sn_name in sn_names]
+
+        ### This is really gross but works for now
+        ### In the future, want to make this more pandas-esque and
+        ### be able to handle multiple col_names at once
+        tns_df = pd.read_csv(tns_file)
+        tns_values = {}
+
+        for col_name in col_names:
+            tns_values[col_name] = []
+            for name in sn_names:
+                row = tns_df[tns_df['name']==name]
+                if len(row.values) == 0:
+                    tns_values[col_name].append(np.nan)
+                else:
+                    tns_value = row[col_name].values[0]
+                    if not tns_value:
+                        tns_values[col_name].append(np.nan)
+                    else:
+                        tns_values[col_name].append(tns_value)
+        
+        return tns_values
+        
+        
     @classmethod
-    def create_db_file(CAAT, type_list = None, base_db_name = 'caat.csv', force = False):
+    def create_db_file(CAAT, type_list = None, base_db_name = 'caat.csv', tns_file = '', force = False):
         #This might need to be replaced long term with some configuration parameters/config file    
         base_path = '../data/'
-        base_db_name = 'caat.csv'
         db_loc = base_path + base_db_name
 
         #Create A List Of Folders To Parse
@@ -76,9 +109,13 @@ class CAAT:
         sndb_name = []
         sndb_type = []
         sndb_subtype = []
+        sndb_z = []
         sndb_tmax = []
         sndb_mmax = []
         sndb_filtmax = []
+        sndb_ra = []
+        sndb_dec = []
+
         #etc
         for sntype in type_list:
             """ For each folder:
@@ -93,14 +130,44 @@ class CAAT:
                 sndb_name.extend(sn_names)
                 sndb_type.extend([sntype] * len(sn_names))
                 sndb_subtype.extend([snsubtype] * len(sn_names))
+
+                if tns_file:
+                    tns_info = CAAT.read_info_from_tns_file(tns_file, sn_names, ['redshift', 'ra', 'declination'])
+                    tns_z = tns_info['redshift']
+                    tns_ra = tns_info['ra']
+                    tns_dec = tns_info['declination']
+                else:
+                    tns_z = [np.nan] * len(sn_names)
+                    tns_ra = [np.nan] * len(sn_names)
+                    tns_dec = [np.nan] * len(sn_names)
+                
+                sndb_z.extend(tns_z)
+                sndb_ra.extend(tns_ra)
+                sndb_dec.extend(tns_dec)
+
                 sndb_tmax.extend([np.nan] * len(sn_names))
                 sndb_mmax.extend([np.nan]*len(sn_names))
                 sndb_filtmax.extend([''] * len(sn_names))
 
         sndb = pd.DataFrame({"Name": sndb_name, "Type": sndb_type, "Subtype": sndb_subtype,
+                             "Redshift": sndb_z, "RA": sndb_ra, "Dec": sndb_dec,
                              "Tmax": sndb_tmax, "Magmax": sndb_mmax, "Filtmax": sndb_filtmax})
         
         CAAT.save_db_file(db_loc, sndb, force=force)
+
+
+    @classmethod
+    def combine_db_files(CAAT, file1, file2, outfile):
+
+        df1 = pd.read_csv(file1)
+        df2 = pd.read_csv(file2)
+        merged = df1.combine_first(df2)
+
+        ### Want to reorder columns in nicer way
+        ### Here we are assuming df2 has all the columns in the merged df
+        ### and in the correct order
+        merged = merged[df2.columns.tolist()]
+        CAAT.save_db_file(outfile, merged)
 
     
     @property
@@ -124,6 +191,12 @@ class SN:
     ### All ZPs taken from SVO, in Jy and in the respective magnitude systems for those filts
     zps = {'UVW2': 744.84, 'UVM2': 785.58, 'UVW1': 940.99, 'U': 1460.59, 'B': 4088.50,
            'V': 3657.87, 'g': 487.6, 'r': 282.9, 'i': 184.9, 'o': 238.9, 'c': 389.3}
+
+    wle = {'u': 3560,  'g': 4830, 'r': 6260, 'i': 7670, 'z': 8890, 'y': 9600, 'w':5985, 'Y': 9600,
+           'U': 3600,  'B': 4380, 'V': 5450, 'R': 6410, 'G': 6730, 'E': 6730, 'I': 7980, 'J': 12200, 'H': 16300,
+           'K': 21900, 'UVW2': 2030, 'UVM2': 2231, 'UVW1': 2634, 'F': 1516, 'N': 2267, 'o': 6790, 'c': 5330,
+           'W': 33526, 'Q': 46028
+    }
 
     def __init__(self, name: str = None, data: dict = None):
 
@@ -190,6 +263,9 @@ class SN:
             info_dict['peak_mag'] = row['Magmax'].values[0]
             info_dict['peak_filt'] = row['Filtmax'].values[0]
             info_dict['searched'] = True
+            info_dict['z'] = row['Redshift'].values[0]
+            info_dict['ra'] = row['RA'].values[0]
+            info_dict['dec'] = row['Dec'].values[0]
 
             self.info = info_dict
 
@@ -329,7 +405,7 @@ class SN:
                             if phot.get('nondetection', False):
                                 ### Check if this is the closest nondetection to either 
                                 ### the first or last detection in this filter
-                                if abs(phot['mjd'] - min_nondetection) < 0.5 or abs(phot['mjd'] - max_nondetection) < 0.5:
+                                if abs(phot['mjd'] - min_nondetection) < 10 or abs(phot['mjd'] - max_nondetection) < 10:
                                     unshifted_mag = phot['mag'] + self.info['peak_mag']
                                     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10**(-0.4*unshifted_mag)) - np.log10(self.zps[self.info['peak_filt']] * 1e-11 * 10**(-0.4*self.info['peak_mag'])) #* 1e15
                                     phot['flux'] = shifted_flux
@@ -346,6 +422,56 @@ class SN:
                     
                     else:
                         self.shifted_data[filt] = []
+
+
+    def correct_for_galactic_extinction(self):
+        sfd = SFDQuery()
+        
+        if not self.info.get('ra', '') or not self.info.get('dec', ''):
+            print('No coordinates for this object')
+            return 
+        
+        coord = SkyCoord(ra=self.info['ra']*u.deg, dec=self.info['dec']*u.deg)
+        exts = fm(np.asarray([self.wle[filt] * (1 + self.info.get('z', 0)) for filt in self.data.keys() if filt in self.wle.keys()]), sfd(coord))
+        
+        i = 0
+        for filt in self.data.keys():
+            if filt in self.wle.keys():# and 'ra' in self.info.keys() and 'dec' in self.info.keys():
+                ### Get coordinate of SN and look up E(B-V)
+                #coord = SkyCoord(ra=self.info['ra']*u.deg, dec=self.info['dec']*u.deg)
+                #ext = fm(np.asarray([self.wle[filt] * (1 + self.info.get('z', 0.0))]), sfd(coord))[0]
+
+                new_phot = []
+                for phot in self.data[filt]:
+                    phot['mag'] -= exts[i]
+                    phot['ext_corrected'] = True
+                    new_phot.append(phot)
+
+                self.data[filt] = new_phot
+                i += 1
+
+            else:
+                self.data[filt] = []
+
+        if self.shifted_data:
+            i = 0
+            for filt in self.shifted_data:
+                if filt in self.wle.keys():# and 'ra' in self.info.keys() and 'dec' in self.info.keys():
+                    ### Get coordinate of SN and look up E(B-V)
+                    #coord = SkyCoord(ra=self.info['ra']*u.deg, dec=self.info['dec']*u.deg)
+                    #ext = fm(np.asarray([self.wle[filt] * (1 + self.info.get('z', 0.0))]), sfd(coord))[0]
+
+                    new_phot = []
+                    for phot in self.shifted_data[filt]:
+                        phot['mag'] -= exts[i]
+                        phot['ext_corrected'] = True
+                        new_phot.append(phot)
+
+                    self.shifted_data[filt] = new_phot
+                    i += 1
+
+                else:
+                    self.shifted_data[filt] = []
 
 
     def plot_data(self, filts_to_plot=['all'], shifted_data_exists=False, view_shifted_data=False, offset=0, plot_fluxes=False):
@@ -826,12 +952,14 @@ class GP(Fitter):
 
 
     def process_dataset_for_gp(self, filt, phasemin, phasemax, log_transform=False, sn_set=None, use_fluxes=False):
-        phases, mags, errs = np.asarray([]), np.asarray([]), np.asarray([])
+        phases, mags, errs, wls = np.asarray([]), np.asarray([]), np.asarray([]), np.asarray([])
 
         if sn_set is None:
             sn_set = self.collection.sne
 
         for sn in sn_set:
+
+            z = sn.info.get('z', 0)
 
             if len(sn.data) == 0:
                 sn.load_swift_data()
@@ -867,13 +995,17 @@ class GP(Fitter):
             phases = np.concatenate((phases, shifted_mjd[inds_to_fit]))
             mags = np.concatenate((mags, shifted_mag[inds_to_fit]))
             errs = np.concatenate((errs, err[inds_to_fit]))
+            if log_transform is not False:
+                wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * np.log10(self.wle[filt] * (1 + z))))
+            else:
+                wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * self.wle[filt] * (1 + z)))
 
-        return phases.reshape(-1, 1), mags.reshape(-1, 1), errs.reshape(-1, 1)
+        return phases.reshape(-1, 1), mags.reshape(-1, 1), errs.reshape(-1, 1), wls.reshape(-1, 1)
 
 
     def run_gp(self, filt, phasemin, phasemax, test_size, use_fluxes=False):
 
-        phases, mags, errs = self.process_dataset_for_gp(filt, phasemin, phasemax, use_fluxes=use_fluxes)
+        phases, mags, errs, _ = self.process_dataset_for_gp(filt, phasemin, phasemax, use_fluxes=use_fluxes)
         X_train, X_test, Y_train, Y_test, Z_train, Z_test = train_test_split(phases, mags, errs, test_size=test_size)
 
         ### Get array of errors at each timestep
@@ -960,13 +1092,13 @@ class GP3D(GP):
       
 
     def build_samples_3d(self, filt, phasemin, phasemax, log_transform=False, sn_set=None, use_fluxes=False):
-        phases, mags, errs = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform, sn_set=sn_set, use_fluxes=use_fluxes)
+        phases, mags, errs, wls = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform, sn_set=sn_set, use_fluxes=use_fluxes)
 
         min_phase, max_phase = sorted(phases)[0], sorted(phases)[-1]
         phase_grid = np.linspace(min_phase, max_phase, len(phases))
         phase_grid_space = (max_phase - min_phase)/len(phases)
 
-        wl_grid = np.ones(len(phase_grid))
+        #wl_grid = np.ones(len(phase_grid))
         err_grid = np.ones(len(phase_grid))
         for mjd in phase_grid:
             ind = np.where((phases < mjd + phase_grid_space/2) & (phases > mjd - phase_grid_space/2))[0]
@@ -986,12 +1118,13 @@ class GP3D(GP):
 
             err_grid[ind] = std_mag
 
-            if log_transform:
-                wl_grid[ind] = np.log10(self.wle[filt])
-            else:
-                wl_grid[ind] = self.wle[filt]
+            #if log_transform:
+            #    wl_grid[ind] = np.log10(self.wle[filt] * (1 + z))
+            #else:
+            #    wl_grid[ind] = self.wle[filt] * (1 + z)
 
-        return phases, wl_grid, mags, err_grid
+        #return phases, wl_grid, mags, err_grid
+        return phases, wls, mags, err_grid
 
 
     def process_dataset_for_gp_3d(self, filtlist, phasemin, phasemax, log_transform=False, plot=False, fit_residuals=False, set_to_normalize=None, use_fluxes=False):
@@ -1125,32 +1258,26 @@ class GP3D(GP):
             ### Get all data that falls within this wl +- 100 A
             if log_transform is not False:
                 inds = np.where((abs(10**all_template_wls - 10**wl_grid[j]) <= 100))[0]
+                ### Add an array of fake measurements to anchor the ends of the fit
+                anchor_phases = np.asarray([np.log(phasemin + log_transform), np.log(phasemax + log_transform)])
             else:
                 inds = np.where((abs(all_template_wls - wl_grid[j]) <= 100))[0]
+                anchor_phases = np.asarray([phasemin, phasemax])
+            
+            if len(inds) > 0:
 
-            #if np.shape(inds) != 
-            ### Add check to make sure inds is 1D
+                fit_coeffs = np.polyfit(
+                    np.concatenate((all_template_phases[inds], anchor_phases)), 
+                    np.concatenate((all_template_mags[inds], np.ones(len(anchor_phases)) * -5.0)), 
+                    3, 
+                    w=1/(np.sqrt(
+                        (np.concatenate((all_template_errs[inds], np.ones(len(anchor_phases)) * 0.05)))**2 + (np.ones(len(all_template_errs[inds]) + len(anchor_phases)) * 0.1)**2))
+                )
+                fit = np.poly1d(fit_coeffs)
+                grid_mags = fit(phase_grid)
             
-            if len(inds) == 0:
-                continue
-            
-            if any([np.isnan(temp_p) for temp_p in all_template_mags[inds]]):
-                print(all_template_mags[inds])
-                print(all_template_errs[inds])
-
-            fit_coeffs = np.polyfit(all_template_phases[inds], all_template_mags[inds], 3, w=1/(np.sqrt((all_template_errs[inds])**2+ (np.ones(len(all_template_errs[inds])) * 0.1)**2)))
-            fit = np.poly1d(fit_coeffs)
-            grid_mags = fit(phase_grid)
-            
-            mag_grid[:,j] = grid_mags
-            err_grid[:,j] = np.ones(len(phase_grid)) * np.median(abs(all_template_mags[inds] - fit(all_template_phases[inds])))
-            
-            # if plot:
-            #     plt.fill_between(phase_grid, grid_mags - err_grid[:,j], grid_mags + err_grid[:, j], alpha=0.5)
-            #     plt.errorbar(all_template_phases[inds], all_template_mags[inds], yerr=all_template_errs[inds], fmt='o', color='k')
-            #     plt.plot(phase_grid, grid_mags, color='blue')
-            #     plt.gca().invert_yaxis()
-            #     plt.show()
+                mag_grid[:,j] = grid_mags
+                err_grid[:,j] = np.ones(len(phase_grid)) * np.median(abs(all_template_mags[inds] - fit(all_template_phases[inds])))
 
         ### Interpolate over the wavelengths to get a complete 2D grid
         mag_grid = self.interpolate_grid(mag_grid, wl_grid, filter_window=31)
@@ -1170,7 +1297,7 @@ class GP3D(GP):
             ax.plot_surface(X, Y, Z)
             ax.invert_zaxis()
             ax.set_xlabel('Phase Grid')
-            ax.set_ylabel('Wavelengths [nm]')
+            ax.set_ylabel('Wavelengths [Angstroms]')
             #ax.set_zlabel('Magnitude')
             plt.show()
 
@@ -1198,78 +1325,84 @@ class GP3D(GP):
                 if sn.info.get('searched', False):
                     shifted_mjd, shifted_mag, err, nondets = [], [], [], []
                 else:
+                    sn.correct_for_galactic_extinction()
                     shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
             else:
                 if filt not in sn.shifted_data.keys():
                     continue
                 if use_fluxes:
+                    sn.correct_for_galactic_extinction()
                     sn.convert_to_fluxes()
                     shifted_mag = np.asarray([phot['flux'] for phot in sn.shifted_data[filt]])
                     err = np.asarray([phot['fluxerr'] for phot in sn.shifted_data[filt]])
                     nondets = np.asarray([phot.get('nondetection', False) for phot in sn.shifted_data[filt]])
                 else:
+                    sn.correct_for_galactic_extinction()
                     shifted_mag = np.asarray([phot['mag'] for phot in sn.shifted_data[filt]])
                     err = np.asarray([phot['err'] for phot in sn.shifted_data[filt]])
                     nondets = np.asarray([phot.get('nondetection', False) for phot in sn.shifted_data[filt]])
                 
                 shifted_mjd = np.asarray([phot['mjd'] for phot in sn.shifted_data[filt]])
             
-            if len(shifted_mjd) == 0:
-                continue
+            if len(shifted_mjd) > 0:
 
-            if log_transform is not False:
-                shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
-                inds_to_fit = np.where((shifted_mjd > np.log(phasemin+log_transform)) & (shifted_mjd < np.log(phasemax+log_transform)))[0]
-                wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) <= 100))[0]
-
-            else:
-                inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
-                wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
-
-            phases = shifted_mjd[inds_to_fit]
-            mags = shifted_mag[inds_to_fit]
-            errs = err[inds_to_fit]
-            current_nondets = nondets[inds_to_fit]
-
-            if plot and len(phases) > 0:
-                print('Plotting for filter ', filt)
-                fig, ax = plt.subplots()
-                ax.plot(phase_grid, mag_grid[:, wl_inds[0]], color=colors.get(filt, 'k'), label='template')
-            
-            for i, phase in enumerate(phases):
-                if log_transform is not None:
-                    phase_inds = np.where((abs(np.exp(phase_grid) - np.exp(phase)) <= 1./24))[0]
-
+                if log_transform is not False:
+                    shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
+                    inds_to_fit = np.where((shifted_mjd > np.log(phasemin+log_transform)) & (shifted_mjd < np.log(phasemax+log_transform)))[0]
+                    #wl_inds = np.where((abs(10**wl_grid - self.wle[filt]*(1 + sn.info.get('z', 0))) <= 100))[0]
+                    wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get('z', 0))))
                 else:
-                    phase_inds = np.where((abs(phase_grid - phase) <= 1./24))[0]
+                    inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
+                    #wl_inds = np.where((abs(wl_grid - self.wle[filt]*(1 + sn.info.get('z', 0))) <= 100))[0]
+                    wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get('z', 0))))
 
-                if np.isnan(mag_grid[phase_inds[0], wl_inds[0]]):
-                    print("NaN Found")
-                    continue
+                phases = shifted_mjd[inds_to_fit]
+                mags = shifted_mag[inds_to_fit]
+                errs = err[inds_to_fit]
+                current_nondets = nondets[inds_to_fit]
+
+                if plot and len(phases) > 0:
+                    print('Plotting for filter ', filt)
+                    fig, ax = plt.subplots()
+                    ax.plot(phase_grid, mag_grid[:, wl_ind], color=colors.get(filt, 'k'), label='template')
                 
-                if log_transform is not None:
-                    wl_residual = np.log10(self.wle[filt])
-                else:
-                    wl_residual = self.wle[filt]
+                for i, phase in enumerate(phases):
 
-                residuals.setdefault(filt, []).extend([{'phase_residual': phase,
-                                                       'wl_residual': wl_residual,
-                                                       'mag_residual': mags[i] - mag_grid[phase_inds[0], wl_inds[0]],
-                                                       'err_residual': errs[i],
-                                                       'mag': mags[i],
-                                                       'nondetection': current_nondets[i]}])
+                    ### Get index of current phase in phase grid
+                    if log_transform is not None:
+                        #phase_inds = np.where((abs(np.exp(phase_grid) - np.exp(phase)) <= 1./24))[0]
+                        phase_ind = np.argmin(abs(np.exp(phase_grid) - np.exp(phase)))
+                    else:
+                        #phase_inds = np.where((abs(phase_grid - phase) <= 1./24))[0]
+                        phase_ind = np.argmin(abs(phase_grid - phase))
 
-                if plot:
-                    ax.errorbar(phase, mags[i] - mag_grid[phase_inds[0], wl_inds[0]], yerr=np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2), marker='o', color='k')
-                    ax.errorbar(phase, mags[i], yerr=errs[i], fmt='o', color=colors.get(filt, 'k'))
-                               
-            if plot and len(phases) > 0:
-                plt.axhline(y=0, linestyle='--', color='gray')
-                ax.errorbar([], [], yerr=[], marker='o', color='k', label='residuals', alpha=0.2)
-                ax.errorbar([], [], yerr=[], fmt='o', color=colors.get(filt, 'k'), label='data', alpha=0.5)
-                plt.gca().invert_yaxis()
-                plt.legend()
-                plt.show()
+                    if np.isnan(mag_grid[phase_ind, wl_ind]):
+                        print(f"NaN Found: phase {np.exp(phase)}, wl {10**wl_grid[wl_ind]}")
+                        continue
+                    
+                    if log_transform is not None:
+                        wl_residual = np.log10(self.wle[filt]*(1 + sn.info.get('z', 0)))
+                    else:
+                        wl_residual = self.wle[filt]*(1 + sn.info.get('z', 0))
+
+                    residuals.setdefault(filt, []).extend([{'phase_residual': phase,
+                                                            'wl_residual': wl_residual,
+                                                            'mag_residual': mags[i] - mag_grid[phase_ind, wl_ind],
+                                                            'err_residual': errs[i],
+                                                            'mag': mags[i],
+                                                            'nondetection': current_nondets[i]}])
+
+                    if plot:
+                        ax.errorbar(phase, mags[i] - mag_grid[phase_ind, wl_ind], yerr=np.sqrt(errs[i]**2 + err_grid[phase_ind, wl_ind]**2), marker='o', color='k')
+                        ax.errorbar(phase, mags[i], yerr=errs[i], fmt='o', color=colors.get(filt, 'k'))
+                                
+                if plot and len(phases) > 0:
+                    plt.axhline(y=0, linestyle='--', color='gray')
+                    ax.errorbar([], [], yerr=[], marker='o', color='k', label='residuals', alpha=0.2)
+                    ax.errorbar([], [], yerr=[], fmt='o', color=colors.get(filt, 'k'), label='data', alpha=0.5)
+                    plt.gca().invert_yaxis()
+                    plt.legend()
+                    plt.show()
 
         return residuals
 
@@ -1305,25 +1438,27 @@ class GP3D(GP):
                 for filt in filtlist:
                     
                     if log_transform is not False:
-                        if len(wl_residuals[abs(10**wl_residuals - self.wle[filt]) < 1]) == 0:
+                        if len(wl_residuals[abs(10**wl_residuals - self.wle[filt]*(1 + sn.info.get('z', 0))) < 1]) == 0:
                             continue
                         test_times_linear = np.arange(phasemin, phasemax, 1./24)
                         test_times = np.log(test_times_linear + log_transform)
-                        test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt])
+                        test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt]*(1 + sn.info.get('z', 0)))
                     else:
-                        if len(wl_residuals[wl_residuals==self.wle[filt]]) == 0:
+                        if len(wl_residuals[wl_residuals==self.wle[filt]]*(1 + sn.info.get('z', 0))) == 0:
                             continue
                         test_times = np.arange(phasemin, phasemax, 1./24)
-                        test_waves = np.ones(len(test_times)) * self.wle[filt]
+                        test_waves = np.ones(len(test_times)) * self.wle[filt]*(1 + sn.info.get('z', 0))
 
                     ### Trying to convert back to normalized magnitudes here
                     if log_transform is not None:
-                        wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) < 99.5))[0]
+                        #wl_inds = np.where((abs(10**wl_grid - self.wle[filt]*(1 + sn.info.get('z', 0))) < 99.5))[0]
+                        wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt]*(1 + sn.info.get('z', 0))))
                     else:
-                        wl_inds = np.where((abs(wl_grid - self.wle[filt]) < 99.5))[0]
+                        #wl_inds = np.where((abs(wl_grid - self.wle[filt]*(1 + sn.info.get('z', 0))) < 99.5))[0]
+                        wl_ind = np.argmin(abs(wl_grid - self.wle[filt]*(1 + sn.info.get('z', 0))))
                     template_mags = []
                     for i in range(len(phase_grid)):
-                        template_mags.append(mag_grid[i, wl_inds[0]])
+                        template_mags.append(mag_grid[i, wl_ind])
 
                     template_mags = np.asarray(template_mags)
 
@@ -1368,9 +1503,9 @@ class GP3D(GP):
                                     alpha=0.5)
 
                     elif plot:
-                        ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]], 
+                        ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]*(1 + sn.info.get('z', 0))], 
                                     np.asarray([p[key_to_plot] for p in sn.shifted_data[filt]])[inds_to_fit],
-                                    yerr=err_residuals[wl_residuals==self.wle[filt]], 
+                                    yerr=err_residuals[wl_residuals==self.wle[filt]*(1 + sn.info.get('z', 0))], 
                                     fmt='o',
                                     color=colors.get(filt, 'k'),
                                     mec='k')
