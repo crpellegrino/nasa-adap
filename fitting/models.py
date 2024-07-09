@@ -255,41 +255,7 @@ class SN:
 
 
     def plot_data(self, filts_to_plot=['all'], shifted_data_exists=False, view_shifted_data=False, offset=0):
-        if not self.data: # check if data/SN has not been previously read in/initialized
-            self.load_swift_data()
-            self.load_json_data()
-        
-        fig, ax = plt.subplots()
-
-        if filts_to_plot[0] == 'all': # if individual filters not specified, plot all by default
-            filts_to_plot = colors.keys()
-
-        if shifted_data_exists:
-            data_to_plot = self.shifted_data
-        elif view_shifted_data:
-            for f in filts_to_plot:
-                self.shift_to_max(f, offset=offset)
-            data_to_plot = self.shifted_data
-        else:
-            data_to_plot = self.data
-        
-        for f in filts_to_plot:
-            for filt, mag_list in data_to_plot.items():
-                if f and f != filt:
-                    continue
-                else:
-                    mjds = np.asarray([phot['mjd'] for phot in mag_list])
-                    mags = np.asarray([phot['mag'] for phot in mag_list])
-                    errs = np.asarray([phot['err'] for phot in mag_list])
-
-                    ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
-        plt.gca().invert_yaxis()
-        plt.legend()
-        plt.xlabel('MJD')
-        plt.ylabel('Apparent Magnitude')
-        plt.title(self.name)
-        plt.minorticks_on()
-        plt.show()
+        Plot().plot_sn_data(snClass=self, filts_to_plot=filts_to_plot, shifted_data_exists=shifted_data_exists, view_shifted_data=view_shifted_data, offset=offset)
 
 
     def fit_for_max(self, filt, shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=False, offset=0):
@@ -325,9 +291,6 @@ class SN:
         if len(inds_to_fit[0]) < 4:
             #print('Select a wider date range')
             return None, None
-        
-        if plot:
-            fig, ax = plt.subplots()
 
         numdata = len(mjd_array[inds_to_fit])
         numiter = max(int(numdata * np.log(numdata)**2), 200)
@@ -335,6 +298,12 @@ class SN:
         fit_mjds = mjd_array[inds_to_fit]
         fit_mags = mag_array[inds_to_fit]
         fit_errs = err_array[inds_to_fit]
+
+        if plot:
+            Plot().plot_fit_for_max(snClass=self, 
+                                  mjd_array=mjd_array, mag_array=mag_array, err_array=err_array, 
+                                  fit_mjds=fit_mjds, fit_mags=fit_mags, fit_errs=fit_errs, 
+                                  inds_to_fit=inds_to_fit)
 
         peak_mags = []
         peak_mjds = []
@@ -360,28 +329,17 @@ class SN:
             fit_time = np.linspace(min(fit_mjds), max(fit_mjds), 100)
 
             if num % 25 == 0 and plot:
-                ax.plot(fit_time, f(fit_time), color='black', linewidth=0.5)
+                plt.plot(fit_time, f(fit_time), color='black', linewidth=0.5)
             peak_mag = min(f(fit_time))
             peak_mags.append(peak_mag)
             peak_mjds.append(fit_time[np.argmin(f(fit_time))])
 
         if len(peak_mjds) == 0:
             return None, None
-
+            
         if plot:
-            ax.errorbar(mjd_array, mag_array, yerr=err_array, fmt='o', color='black')
-            ax.errorbar(fit_mjds, fit_mags, yerr=fit_errs, fmt='o', color='blue', label='Used in Fitting')
-            ax.errorbar(mean(peak_mjds), mean(peak_mags), xerr=stdev(peak_mjds), yerr=stdev(peak_mags), color='red', fmt='o', label='Best Fit Peak')
+            plt.errorbar(mean(peak_mjds), mean(peak_mags), xerr=stdev(peak_mjds), yerr=stdev(peak_mags), color='red', fmt='o', label='Best Fit Peak')
             plt.xlim(guess_mjd_max-10, guess_mjd_max+10)
-            if len(mjd_array[inds_to_fit]) > 0:
-                plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
-            plt.xlabel('MJD')
-            plt.ylabel('Apparent Magnitude')
-            plt.title(self.name)
-            plt.legend()
-            plt.gca().invert_yaxis()
-
-            plt.show()
 
         self.info['peak_mjd'] = mean(peak_mjds)
         self.info['peak_mag'] = mean(peak_mags)
@@ -421,14 +379,7 @@ class SN:
         errs = np.asarray([phot['err'] for phot in self.data[filt]])
 
         if plot:
-            plt.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt+'-band')
-            plt.xlabel('Shifted Time [days]')
-            plt.ylabel('Shifted Magnitude')
-            plt.title(self.name+'-Shifted Data')
-            plt.legend()
-            plt.gca().invert_yaxis()
-
-            plt.show()
+            Plot().plot_shift_to_max(snClass=self, filt=filt)
 
         self.shifted_data.setdefault(filt, []).extend(
             [{'mjd': mjds[i], 'mag': mags[i], 'err': errs[i]} for i in range(len(mjds))]
@@ -532,61 +483,7 @@ class SNCollection:
     def plot_all_lcs(self, filts=['all'], log_transform=False):
         """plot all light curves of given subtype/collection
             can plot single, multiple or all bands"""
-        sne = self.sne
-        print(f"Plotting all {len(sne)} lightcurves in the collection")
-
-        fig, ax = plt.subplots()
-        if filts[0] is not 'all':
-            filts_to_plot = filts
-        else:
-            print(f"BEWARE -- plotting ALL bands of ALL objects in the collection -- plot will be messy.\n")
-            filts_to_plot = colors.keys()
-
-        for i,f in enumerate(filts_to_plot):
-            for sn in sne:
-                mjds, mags, errs = sn.shift_to_max(f)
-                if len(mjds) == 0:
-                    continue
-                if log_transform is not False:
-                    mjds = sn.log_transform_time(mjds, phase_start=log_transform)
-                ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
-            filtText = f+'\n'
-            plt.figtext(0.95, 0.75-(0.05*i), filtText, fontsize=14,color=colors.get(f))
-
-        # cannot figure out how to display only unique labels (filters) in order w/ matching handles 
-        # plt.legend()
-        
-        if log_transform is False:
-            ax.set_xlabel('Shifted Time [days]')
-        else:
-            ax.set_xlabel('Log(Shifted Time)')
-        ax.set_ylabel('Shifted Magnitudes')
-        plt.gca().invert_yaxis()
-        plt.title('Lightcurves for collection of {} objects\nType:{}, Subtype:{}'.format(len(sne),self.type,self.subtype))
-        plt.show()
-
-
-        # if not type(subtypes) == list:
-        #     subtypes = [subtypes]
-
-        # if 'all' in subtypes:
-        #     subtypes = self.subtypes
-
-        # for subtype in subtypes:
-        #     fig, ax = plt.subplots()
-            
-        #     ### First find max values for given filt
-        #     for sn in self.sne[subtype]:
-        #         mjds, mags, errs = sn.shift_to_max(filt)
-        #         if len(mjds) == 0:
-        #             continue
-        #         if log_transform is not False:
-        #             mjds = sn.log_transform_time(mjds, phase_start=log_transform)
-        #         ax.errorbar(mjds, mags, yerr=errs, fmt='o', color='k')
-            
-        #     plt.gca().invert_yaxis()
-        #     plt.title('{} + {}'.format(subtype, filt))
-        #     plt.show()
+        Plot().plot_all_lcs(snClass=self, filts=filts, log_transform=log_transform)
 
 
 class SNType(SNCollection):
@@ -775,25 +672,7 @@ class GP(Fitter):
         mean_prediction, std_prediction = gaussian_process.predict(sorted(phases), return_std=True)
 
         if plot:
-            fig, ax = plt.subplots()
-            ax.plot(sorted(phases), mean_prediction, color='k', label='GP fit',zorder=10)
-            ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt='o', color=colors.get(filt, 'k'), alpha=0.2, label=filt,zorder=0)
-            ax.fill_between(
-                    sorted(phases.ravel()),
-                    mean_prediction - 1.96*std_prediction,
-                    mean_prediction + 1.96*std_prediction,
-                    alpha=0.5,
-                    color='lightgray',
-                    label='?2-sigma Error',
-                    zorder=10
-            )
-            plt.gca().invert_yaxis()
-            plt.xlabel('Shifted Time [days]')
-            plt.ylabel('Shifted Magnitude')
-            plt.title('Single-Filter GP Fit')
-            handles, labels = ax.get_legend_handles_labels()
-            ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
-            plt.show()
+            Plot().plot_GP_predict_gp(gpClass=self, phases=phases, mean_prediction=mean_prediction, std_prediction=std_prediction, mags=mags, errs=errs, filt=filt)
 
 
 class GP3D(GP):
@@ -930,34 +809,17 @@ class GP3D(GP):
         err_grid = err_grid.T
         err_grid = self.interpolate_grid(err_grid, wl_grid, filter_window=31)
 
+        if log_transform is not False:
+            X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
+        else:
+            X, Y = np.meshgrid(phase_grid, wl_grid)
+
+        Z = mag_grid.T
+
         if plot:
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
-            
-            if log_transform is not False:
-                X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
-            else:
-                X, Y = np.meshgrid(phase_grid, wl_grid)
-
-            Z = mag_grid.T
-
-            ax.plot_surface(X, Y, Z)
-            ax.invert_zaxis()
-            ax.set_xlabel('Phase Grid')
-            ax.set_ylabel('Wavelengths [nm]')
-            ax.set_zlabel('Magnitude')
-            plt.show()
-
-            for filt in filtlist:
-                if log_transform is not False:
-                    wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) <= 100))[0]
-                else:
-                    wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
-
-                plt.errorbar(phase_grid, mag_grid[:,wl_inds[0]], yerr=abs(err_grid[:,wl_inds[0]]), fmt='o')
-                plt.gca().invert_yaxis()
-                plt.title(filt)
-                plt.show()
+            Plot().plot_construct_grid(gpClass=self, X=X, Y=Y, Z=Z, phase_grid=phase_grid, mag_grid=mag_grid, 
+                                        wl_grid=wl_grid, err_grid=err_grid, log_transform=log_transform, 
+                                        filtlist=filtlist, grid_type='median')
 
         return phase_grid, wl_grid, mag_grid, err_grid
     
@@ -999,42 +861,23 @@ class GP3D(GP):
             
             mag_grid[:,j] = grid_mags
             err_grid[:,j] = np.ones(len(phase_grid)) * np.median(abs(all_template_mags[inds] - fit(all_template_phases[inds])))
-            
-            # if plot:
-            #     plt.fill_between(phase_grid, grid_mags - err_grid[:,j], grid_mags + err_grid[:, j], alpha=0.5)
-            #     plt.errorbar(all_template_phases[inds], all_template_mags[inds], yerr=all_template_errs[inds], fmt='o', color='k')
-            #     plt.plot(phase_grid, grid_mags, color='blue')
-            #     plt.gca().invert_yaxis()
-            #     plt.show()
+
+        if log_transform is not False:
+            X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
+        else:
+            X, Y = np.meshgrid(phase_grid, wl_grid)
+
+        Z = mag_grid.T
+
+        if log_transform is not False:
+            X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
+        else:
+            X, Y = np.meshgrid(phase_grid, wl_grid)
+
+        Z = mag_grid.T
 
         if plot:
-            fig = plt.figure()
-            ax = fig.add_subplot(111, projection='3d')
-            
-            if log_transform is not False:
-                X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
-            else:
-                X, Y = np.meshgrid(phase_grid, wl_grid)
-
-            Z = mag_grid.T
-
-            ax.plot_surface(X, Y, Z)
-            ax.invert_zaxis()
-            ax.set_xlabel('Phase Grid')
-            ax.set_ylabel('Wavelengths [nm]')
-            ax.set_zlabel('Magnitude')
-            plt.show()
-
-            # for filt in filtlist:
-            #     if log_transform is not False:
-            #         wl_inds = np.where((abs(10**wl_grid - self.wle[filt]) <= 100))[0]
-            #     else:
-            #         wl_inds = np.where((abs(wl_grid - self.wle[filt]) <= 100))[0]
-
-            #     plt.errorbar(phase_grid, mag_grid[:,wl_inds[0]], yerr=abs(err_grid[:,wl_inds[0]]), fmt='o')
-            #     plt.gca().invert_yaxis()
-            #     plt.title(filt)
-            #     plt.show()
+            Plot().plot_construct_grid(gpClass=self, X=X, Y=Y, Z=Z, grid_type='polynomial')
 
         return phase_grid, wl_grid, mag_grid, err_grid
     
@@ -1074,9 +917,7 @@ class GP3D(GP):
             errs = err[inds_to_fit]
 
             if plot and len(phases) > 0:
-                print('Plotting for filter ', filt)
-                fig, ax = plt.subplots()
-                ax.plot(phase_grid, mag_grid[:, wl_inds[0]], color=colors.get(filt, 'k'), label='template')
+                Plot().plot_subtract_data_from_grid(gpClass=self, snClass=sn, phase_grid=phase_grid, mag_grid=mag_grid, wl_inds=wl_inds, filt=filt, log_transform=log_transform)
             
             for i, phase in enumerate(phases):
                 if log_transform is not None:
@@ -1099,30 +940,37 @@ class GP3D(GP):
                 err_residuals.append(errs[i])
 
                 if plot:
-                    #template_inds = np.where((wl_grid==self.wle[filt]))[0]
-                    ax.errorbar(phase, mags[i] - mag_grid[phase_inds[0], wl_inds[0]], yerr=np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2), marker='o', color='k')
-                    ax.errorbar(phase, mags[i], yerr=errs[i], fmt='o', color=colors.get(filt, 'k'))
-                               
-            if plot and len(phases) > 0:
-                plt.axhline(y=0, linestyle='--', color='gray')
-                ax.errorbar([], [], yerr=[], marker='o', color='k', label='residuals', alpha=0.2)
-                ax.errorbar([], [], yerr=[], fmt='o', color=colors.get(filt, 'k'), label='data', alpha=0.5)
-                plt.gca().invert_yaxis()
-                plt.legend()
-                plt.show()
+                    ##template_inds = np.where((wl_grid==self.wle[filt]))[0]
+                    # fig, ax = plt.subplots()
+                    plt.errorbar(phase, mags[i] - mag_grid[phase_inds[0], wl_inds[0]], yerr=np.sqrt(errs[i]**2 + err_grid[phase_inds[0], wl_inds[0]]**2), marker='o', color='k', alpha=0.02)
+                    plt.errorbar(phase, mags[i], yerr=errs[i], fmt='o', color=colors.get(filt, 'k'), alpha=0.05)
+            
 
         return np.asarray(phase_residuals), np.asarray(wl_residuals), np.asarray(mag_residuals), np.asarray(err_residuals)
 
 
     def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False, interactive=False):
+        
+        if interactive:
+            plot=True
 
         if fit_residuals:
-            all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize)
+            all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs = self.process_dataset_for_gp_3d(filtlist, 
+                                                                                                                                                                  phasemin, 
+                                                                                                                                                                  phasemax, 
+                                                                                                                                                                  log_transform=log_transform, 
+                                                                                                                                                                  plot=False, 
+                                                                                                                                                                  fit_residuals=True, 
+                                                                                                                                                                  set_to_normalize=set_to_normalize)
             kernel_params = []
             gaussian_processes = []
-            phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, 
+                                                                                     all_template_phases, all_template_wls, all_template_mags, all_template_errs, 
+                                                                                     log_transform=log_transform, plot=plot)
             for sn in self.collection.sne:
-                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.subtract_data_from_grid(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False)
+                phase_residuals, wl_residuals, mag_residuals, err_residuals = self.subtract_data_from_grid(sn, phasemin, phasemax, filtlist, 
+                                                                                                           phase_grid, wl_grid, mag_grid, err_grid, 
+                                                                                                           log_transform=log_transform, plot=plot)
                 x = np.vstack((phase_residuals, wl_residuals)).T
                 y = mag_residuals
                 if len(y) < 2:
@@ -1135,7 +983,8 @@ class GP3D(GP):
                 gaussian_process.fit(x, y)
 
                 if plot:
-                    fig, ax = plt.subplots()
+                    fig, ax = Plot().create_empty_subplot()
+
                 for filt in filtlist:
                     
                     if log_transform is not False:
@@ -1165,16 +1014,6 @@ class GP3D(GP):
                     if log_transform is not False:
                         test_times = np.exp(test_times) - log_transform
 
-                    if plot:
-                        ax.plot(test_times, test_prediction+template_mags, label=filt, color=colors.get(filt, 'k'))
-                        ax.fill_between(
-                                test_times,
-                                test_prediction - 1.96*std_prediction + template_mags,
-                                test_prediction + 1.96*std_prediction + template_mags,
-                                alpha=0.2,
-                                color=colors.get(filt, 'k')
-                        )
-
                     # Plot the SN photometry
                     shifted_mjd = np.asarray([phot['mjd'] for phot in sn.shifted_data[filt]])
                     if log_transform is not False:
@@ -1186,37 +1025,20 @@ class GP3D(GP):
                         inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
 
                     # try:   
-                    if log_transform is not False and plot:
-                        #print(wl_residuals, np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit])
-                        ax.errorbar(np.exp(phase_residuals[wl_residuals==np.log10(self.wle[filt])]) - log_transform, 
-                                np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
-                                yerr=err_residuals[wl_residuals==np.log10(self.wle[filt])], 
-                                fmt='o',
-                                color=colors.get(filt, 'k'),
-                                mec='k')
-
-                    elif plot:
-                        ax.errorbar(phase_residuals[wl_residuals==self.wle[filt]], 
-                                    np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
-                                    yerr=err_residuals[wl_residuals==self.wle[filt]], 
-                                    fmt='o',
-                                    color=colors.get(filt, 'k'),
-                                    mec='k')
-                            
+                    # plotting stuffs
                     # except Exception as e:
                     #     print('Problem plotting {} data for {}'.format(filt, sn.name))
                     #     print('(had NaNs in mag residuals)')
-                        
-                if plot:
-                    ax.invert_yaxis()
-                    ax.set_xlabel('Normalized Time [days]')
-                    ax.set_ylabel('Magnitude Residual')
-                    plt.title(sn.name)
-                    plt.legend()
-                    plt.show()
 
-                    if median_combine_gps and interactive:
-                        use_for_template = input('Use this fit to construct a template? y/n')
+                    if plot:
+                        Plot().plot_run_gp_overlay(fig=fig, ax=ax, gpClass=self, snClass=sn, 
+                                                   test_times=test_times, test_prediction=test_prediction, std_prediction=std_prediction,
+                                                   template_mags=template_mags,
+                                                   phase_residuals=phase_residuals, wl_residuals=wl_residuals, err_residuals=err_residuals,
+                                                   inds_to_fit=inds_to_fit, log_transform=log_transform, filt=filt)
+                        
+                if median_combine_gps and interactive:
+                    use_for_template = input('Use this fit to construct a template? y/n')
 
                 if median_combine_gps:
                     # if log_transform is not False:
@@ -1264,14 +1086,7 @@ class GP3D(GP):
                         gp_grid[current_wl_grid_ind, :] = col
 
                     if plot:
-                        fig = plt.figure()
-                        ax = fig.add_subplot(111, projection='3d')
-                        ax.plot_surface(x, y, test_prediction_reshaped)
-                        ax.invert_zaxis()
-                        ax.set_xlabel('Phase Grid')
-                        ax.set_ylabel('Wavelengths')
-                        ax.set_zlabel('Magnitude')
-                        plt.show()
+                        Plot().plot_run_gp_surface(gpClass=self, x=x, y=y, test_prediction_reshaped=test_prediction_reshaped)
 
                     if not plot:
                         use_for_template = 'y'
@@ -1286,7 +1101,7 @@ class GP3D(GP):
                 return gaussian_processes, phase_grid, wl_grid
             return None, phase_residuals, kernel_params
 
-        else:
+        else: # called if we are not fitting to residuals
             all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=plot)
             x = np.vstack((all_phases, all_wls)).T
             y = all_mags
@@ -1313,7 +1128,7 @@ class GP3D(GP):
             gaussian_process, X_test, kernel_params = self.run_gp(filtlist, phasemin, phasemax, test_size=test_size, plot=plot, log_transform=log_transform, fit_residuals=fit_residuals)
 
             if plot:
-                fig, ax = plt.subplots()
+                fig, ax = Plot().create_empty_subplot()
                 
             if test_size is not None:
                 for filt in filtlist:
@@ -1328,26 +1143,7 @@ class GP3D(GP):
                     test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
 
                     if plot:
-                        if log_transform is not False:
-                            test_times = np.exp(test_times) - log_transform
-                        ax.plot(test_times, test_prediction, label=filt)
-                        ax.fill_between(
-                                test_times,
-                                test_prediction - 1.96*std_prediction,
-                                test_prediction + 1.96*std_prediction,
-                                alpha=0.2,
-                        )
-                        # ADD OPTION TO DISPLAY DATA POITNS USED ?
-
-                if plot:
-                    ax.invert_yaxis()
-                    ax.set_xlabel('Normalized Time [days]')
-                    ax.set_ylabel('Normalized Magnitude')
-                    #plt.suptitle('Classification: {}'.format(self.classification))
-                    #ax.set_title('SubType: {}'.format(self.collection[0].subtype))
-                    plt.title('3D GP Fit')
-                    plt.legend()
-                    plt.show()
+                        Plot().plot_predict_gp(fig=fig, ax=ax, gpClass=self, test_prediction=test_prediction, std_prediction=std_prediction, log_transform=log_transform, filt=filt)
 
         elif median_combine_gps:
             ### We're fitting each SN individually and then median combining the full 2D GP
@@ -1369,11 +1165,291 @@ class GP3D(GP):
 
             Z = median_gp
 
-            ax.plot_surface(X, Y, Z)
-            #ax.axes.set_zlim3d(bottom=-5, top=5)
-            ax.invert_zaxis()
-            ax.set_xlabel('Phase Grid')
-            ax.set_ylabel('Wavelengths')
-            ax.set_zlabel('Magnitude')
-            plt.title('Final Median GP Fit')
-            plt.show()
+            Plot().plot_construct_grid(gpClass=self, X=X, Y=Y, Z=Z, grid_type='final')
+
+
+class Plot():
+    """
+    Plot class allowing any number of diagnostic / step-by-step plots to be created and displayed
+    across the SN, SNCollection, GP, and GP3D classes
+    """
+    
+    def create_empty_subplot(self):
+        fig, ax = plt.subplots()
+        return fig, ax
+
+    def plot_sn_data(self, snClass, filts_to_plot=['all'], shifted_data_exists=False, view_shifted_data=False, offset=0):
+        sn = snClass
+
+        if not sn.data: # check if data/SN has not been previously read in/initialized
+            sn.load_swift_data()
+            sn.load_json_data()
+        
+        fig, ax = plt.subplots()
+
+        if filts_to_plot[0] == 'all': # if individual filters not specified, plot all by default
+            filts_to_plot = colors.keys()
+
+        if shifted_data_exists:
+            data_to_plot = sn.shifted_data
+        elif view_shifted_data:
+            for f in filts_to_plot:
+                sn.shift_to_max(f, offset=offset)
+            data_to_plot = sn.shifted_data
+        else:
+            data_to_plot = sn.data
+        
+        for f in filts_to_plot:
+            for filt, mag_list in data_to_plot.items():
+                if f and f != filt:
+                    continue
+                else:
+                    mjds = np.asarray([phot['mjd'] for phot in mag_list])
+                    mags = np.asarray([phot['mag'] for phot in mag_list])
+                    errs = np.asarray([phot['err'] for phot in mag_list])
+
+                    ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt)
+        plt.gca().invert_yaxis()
+        plt.legend()
+        plt.xlabel('MJD')
+        plt.ylabel('Apparent Magnitude')
+        plt.title(sn.name)
+        plt.minorticks_on()
+        plt.show()
+
+
+    def plot_fit_for_max(self, snClass, mjd_array, mag_array, err_array, fit_mjds, fit_mags, fit_errs, inds_to_fit):
+        """
+        Takes as input arrays for MJD, mag, and err for a filter
+        as well as the guess for the MJD of maximum and an array
+        to shift the lightcurve over,
+        and returns estimates of the peak MJD and mag at peak
+        """
+        # CURRENTLY DOES NOT WORK
+
+        sn = snClass
+
+        fig, ax = plt.subplots()
+
+        ax.errorbar(mjd_array, mag_array, yerr=err_array, fmt='o', color='black')
+        ax.errorbar(fit_mjds, fit_mags, yerr=fit_errs, fmt='o', color='blue', label='Used in Fitting')
+        if len(mjd_array[inds_to_fit]) > 0:
+            plt.ylim(min(mag_array[inds_to_fit])-0.5, max(mag_array[inds_to_fit])+0.5)
+        plt.xlabel('MJD')
+        plt.ylabel('Apparent Magnitude')
+        plt.title(sn.name)
+        plt.legend()
+        plt.gca().invert_yaxis()
+
+        # plt.show()
+
+    
+    def plot_shift_to_max(self, snClass, filt):
+        sn = snClass
+        
+        if not sn.data:
+            sn.load_swift_data()
+            sn.load_json_data()
+
+        if filt not in sn.data.keys():
+            return [], [], []
+
+        if not sn.info.get('peak_mjd') and not sn.info.get('peak_mag'):
+            print(f"For plotting purposes, please find peak using SN.fit_for_max() first")
+
+        mjds = np.asarray([phot['mjd'] for phot in sn.data[filt]]) - sn.info['peak_mjd']
+        mags = np.asarray([phot['mag'] for phot in sn.data[filt]]) - sn.info['peak_mag']
+        errs = np.asarray([phot['err'] for phot in sn.data[filt]])
+
+        plt.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt+'-band')
+        plt.xlabel('Shifted Time [days]')
+        plt.ylabel('Shifted Magnitude')
+        plt.title(sn.name+'-Shifted Data')
+        plt.legend()
+        plt.gca().invert_yaxis()
+        plt.show()
+
+
+    def plot_all_lcs(self, snClass, filts=['all'], log_transform=False):
+        """plot all light curves of given subtype/collection
+            can plot single, multiple or all bands"""
+        snc = snClass
+        
+        sne = snc.sne
+        print(f"Plotting all {len(sne)} lightcurves in the collection")
+
+        fig, ax = plt.subplots()
+        if filts[0] is not 'all':
+            filts_to_plot = filts
+        else:
+            filts_to_plot = colors.keys()
+
+        for i,f in enumerate(filts_to_plot):
+            for sn in sne:
+                mjds, mags, errs = sn.shift_to_max(f)
+                if len(mjds) == 0:
+                    continue
+                if log_transform is not False:
+                    mjds = sn.log_transform_time(mjds, phase_start=log_transform)
+                ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
+            filtText = f+'\n'
+            plt.figtext(0.95, 0.75-(0.05*i), filtText, fontsize=14,color=colors.get(f))
+        
+        if log_transform is False:
+            ax.set_xlabel('Shifted Time [days]')
+        else:
+            ax.set_xlabel('Log(Shifted Time)')
+        ax.set_ylabel('Shifted Magnitudes')
+        plt.gca().invert_yaxis()
+        plt.title('Lightcurves for collection of {} objects\nType: {}, Subtype: {}'.format(len(sne),snc.type,snc.subtype))
+        plt.show()
+
+
+    def plot_GP_predict_gp(self, gpClass, phases, mean_prediction, std_prediction, mags, errs, filt):
+        gp = gpClass
+
+        fig, ax = plt.subplots()
+        ax.plot(sorted(phases), mean_prediction, color='k', label='GP fit',zorder=10)
+        ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt='o', color=colors.get(filt, 'k'), alpha=0.2, label=filt,zorder=0)
+        ax.fill_between(
+                sorted(phases.ravel()),
+                mean_prediction - 1.96*std_prediction,
+                mean_prediction + 1.96*std_prediction,
+                alpha=0.5,
+                color='lightgray',
+                label='96% Confidence Interval',
+                zorder=10
+        )
+        plt.gca().invert_yaxis()
+        plt.xlabel('Shifted Time [days]')
+        plt.ylabel('Shifted Magnitude')
+        plt.title('Single-band GP Fit\nType: {}, SubType: {}, Band: {}'.format(gp.collection.type, gp.collection.subtype, filt))
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
+        plt.show()
+
+
+    def plot_construct_grid(self, gpClass, X, Y, Z, grid_type=None, phase_grid=None, mag_grid=None, wl_grid=None, err_grid=None, log_transform=None, filtlist=None):
+        """
+        :input grid_type: takes str object 'median' or 'poly', default=None
+        """
+        gpc = gpClass
+
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        ax.plot_surface(X, Y, Z)
+        ax.invert_zaxis()
+        ax.set_xlabel('Phase Grid')
+        ax.set_ylabel('Wavelengths [nm]')
+        ax.set_zlabel('Magnitude')
+        if grid_type=='polynomial':
+            ax.set_title('Polynomial Grid / Templates')
+        elif grid_type=='median':
+            ax.set_title('Median Grid / Templates')
+        elif grid_type=='final':
+            ax.set_title('Final Median GP Fit')
+        else:
+            ax.set_title('Grid')
+        plt.tight_layout()
+        # plt.show()
+
+        if grid_type=='median':
+            for filt in filtlist:
+                if log_transform is not False:
+                    wl_inds = np.where((abs(10**wl_grid - gpc.wle[filt]) <= 100))[0]
+                else:
+                    wl_inds = np.where((abs(wl_grid - gpc.wle[filt]) <= 100))[0]
+
+                plt.errorbar(phase_grid, mag_grid[:,wl_inds[0]], yerr=abs(err_grid[:,wl_inds[0]]), fmt='o')
+                plt.gca().invert_yaxis()
+                plt.title(filt)
+                # plt.show()
+
+
+    def plot_subtract_data_from_grid(self, gpClass, snClass, phase_grid, mag_grid, wl_inds, filt, log_transform, ):
+        gpc = gpClass
+        sn = snClass
+
+        fig, ax = plt.subplots()
+        ax.plot(phase_grid, mag_grid[:, wl_inds[0]], color=colors.get(filt, 'k'), label='template')
+
+        plt.axhline(y=0, linestyle='--', color='gray')
+        ax.errorbar([], [], yerr=[], marker='o', color='k', label='residuals', alpha=0.2)
+        ax.errorbar([], [], yerr=[], fmt='o', color=colors.get(filt, 'k'), label='data', alpha=0.5)
+        if log_transform is not None:
+            ax.set_xlabel('Log(Time)')
+        else:
+            ax.set_xlabel('Time [days]')
+        ax.set_ylabel('Magnitude relative to Peak Mag')
+        ax.set_title('Template Subtraction for {} in {}-band'.format(sn.name,filt))
+        plt.gca().invert_yaxis()
+        plt.legend()
+        # plt.show()
+
+
+    def plot_run_gp_overlay(self, fig, ax, gpClass, snClass, test_times, test_prediction, std_prediction, template_mags, phase_residuals, wl_residuals, err_residuals, inds_to_fit, log_transform, filt):
+        gpc = gpClass
+        sn = snClass
+
+        ax.plot(test_times, test_prediction+template_mags, label=filt, color=colors.get(filt, 'k'))
+        ax.fill_between(
+                test_times,
+                test_prediction - 1.96*std_prediction + template_mags,
+                test_prediction + 1.96*std_prediction + template_mags,
+                alpha=0.2,
+                color=colors.get(filt, 'k'))
+        
+        if log_transform is not False:
+            #print(wl_residuals, np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit])
+            ax.errorbar(np.exp(phase_residuals[wl_residuals==np.log10(gpc.wle[filt])]) - log_transform, 
+                    np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
+                    yerr=err_residuals[wl_residuals==np.log10(gpc.wle[filt])], 
+                    fmt='o',
+                    color=colors.get(filt, 'k'),
+                    mec='k')
+        else:
+            ax.errorbar(phase_residuals[wl_residuals==gpc.wle[filt]], 
+                        np.asarray([p['mag'] for p in sn.shifted_data[filt]])[inds_to_fit],
+                        yerr=err_residuals[wl_residuals==gpc.wle[filt]], 
+                        fmt='o',
+                        color=colors.get(filt, 'k'),
+                        mec='k')
+            
+        ax.invert_yaxis()
+        ax.set_xlabel('Normalized Time [days]')
+        ax.set_ylabel('Magnitude relative to Peak Mag')
+        plt.title(sn.name)
+        plt.legend()
+
+
+    def plot_run_gp_surface(self, gpClass, x, y, test_prediction_reshaped):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+        ax.plot_surface(x, y, test_prediction_reshaped)
+        ax.invert_zaxis()
+        ax.set_xlabel('Phase Grid')
+        ax.set_ylabel('Wavelengths')
+        ax.set_zlabel('Magnitude')
+        plt.tight_layout()
+        # plt.show()
+
+
+    def plot_predict_gp(self, fig, ax, gpClass, test_prediction, std_prediction, log_transform, filt):
+        gpc = gpClass
+        
+        if log_transform is not False:
+                test_times = np.exp(test_times) - log_transform
+        ax.plot(test_times, test_prediction, label=filt)
+        ax.fill_between(
+                test_times,
+                test_prediction - 1.96*std_prediction,
+                test_prediction + 1.96*std_prediction,
+                alpha=0.2,)
+        
+        ax.invert_yaxis()
+        ax.set_xlabel('Normalized Time [days]')
+        ax.set_ylabel('Normalized Magnitude')
+        plt.title('3D GP Fit')
+        plt.legend()
+        plt.show()
