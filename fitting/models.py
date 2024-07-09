@@ -532,9 +532,9 @@ class SN:
         to shift the lightcurve over,
         and returns estimates of the peak MJD and mag at peak
         """
-        mjd_array = np.asarray([phot['mjd'] for phot in self.data[filt]])
-        mag_array = np.asarray([phot['mag'] for phot in self.data[filt]])
-        err_array = np.asarray([phot['err'] for phot in self.data[filt]])
+        mjd_array = np.asarray([phot['mjd'] for phot in self.data[filt] if not phot.get('nondetection', False)])
+        mag_array = np.asarray([phot['mag'] for phot in self.data[filt] if not phot.get('nondetection', False)])
+        err_array = np.asarray([phot['err'] for phot in self.data[filt] if not phot.get('nondetection', False)])
 
         if len(mag_array) < 4:#== 0:
             return None, None
@@ -550,6 +550,10 @@ class SN:
         guess_phases = np.arange(min(mjd_array[fit_inds]), max(mjd_array[fit_inds]), 1)
         p = np.poly1d(fit_coeffs)
         guess_best_fit = p(guess_phases)
+
+        if len(guess_best_fit) == 0:
+            return None, None
+        
         guess_mjd_max = guess_phases[np.where((guess_best_fit==min(guess_best_fit)))[0]][0]
 
         ### Do this because the array might not be ordered
@@ -653,7 +657,9 @@ class SN:
         nondets = np.asarray([phot.get('nondetection', False) for phot in self.data[filt]])
 
         if plot:
-            plt.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt+'-band')
+            plt.errorbar(mjds[np.where((nondets==False))[0]], mags[np.where((nondets==False))[0]], yerr=errs[np.where((nondets==False))[0]], fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt+'-band')
+            plt.scatter(mjds[np.where((nondets==True))[0]], mags[np.where((nondets==True))[0]], marker='v', color=colors.get(filt, 'k'), alpha=0.2)
+
             plt.xlabel('Shifted Time [days]')
             plt.ylabel('Shifted Magnitude')
             plt.title(self.name+'-Shifted Data')
