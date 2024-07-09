@@ -3,3 +3,4 @@ swift_uvot_reductions/
 **/test.py
 **/test*py
 diagnostics/*
+**/plot_demo*
