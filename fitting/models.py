@@ -1022,7 +1022,7 @@ class GP(Fitter):
                     mean_prediction + 1.96*std_prediction,
                     alpha=0.5,
                     color='lightgray',
-                    label='?2-sigma Error',
+                    label='95\% confidence region',
                     zorder=10
             )
             plt.gca().invert_yaxis()
@@ -1398,7 +1398,7 @@ class GP3D(GP):
         return residuals
 
 
-    def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, median_combine_gps=False, interactive=False, use_fluxes=False):
+    def run_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=None, subtract_median=False, subtract_polynomial=False, interactive=False, use_fluxes=False):
         """
         Function to run the Gaussian Process Regression
         ===============================================
@@ -1418,7 +1418,12 @@ class GP3D(GP):
             all_phases, all_wls, all_mags, all_errs, all_template_phases, all_template_wls, all_template_mags, all_template_errs = self.process_dataset_for_gp_3d(filtlist, phasemin, phasemax, log_transform=log_transform, plot=False, fit_residuals=True, set_to_normalize=set_to_normalize, use_fluxes=use_fluxes)
             kernel_params = []
             gaussian_processes = []
-            phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            if subtract_polynomial:
+                phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            elif subtract_median:
+                phase_grid, wl_grid, mag_grid, err_grid = self.construct_median_grid(phasemin, phasemax, filtlist, all_template_phases, all_template_wls, all_template_mags, all_template_errs, log_transform=log_transform, plot=plot)
+            else:
+                raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
             for sn in self.collection.sne:
                 residuals = self.subtract_data_from_grid(sn, phasemin, phasemax, filtlist, phase_grid, wl_grid, mag_grid, err_grid, log_transform=log_transform, plot=False, use_fluxes=use_fluxes)
 
@@ -1525,10 +1530,10 @@ class GP3D(GP):
                         plt.legend()
                         plt.show()
 
-                        if median_combine_gps and interactive:
+                        if (subtract_median or subtract_polynomial) and interactive:
                             use_for_template = input('Use this fit to construct a template? y/n')
 
-                    if median_combine_gps:
+                    if subtract_median or subtract_polynomial:
 
                         if log_transform is not None:
                             waves_to_predict = np.unique(wl_residuals)
@@ -1588,7 +1593,7 @@ class GP3D(GP):
                             gaussian_processes.append(gp_grid)
                     kernel_params.append(gaussian_process.kernel_.theta)
 
-            if median_combine_gps:
+            if subtract_median or subtract_polynomial: 
                 return gaussian_processes, phase_grid, wl_grid
             return None, phase_residuals, kernel_params
 
@@ -1611,7 +1616,8 @@ class GP3D(GP):
             return gaussian_process, X_test, None
 
 
-    def predict_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=False, median_combine_gps=False, use_fluxes=False):
+    def predict_gp(self, filtlist, phasemin, phasemax, test_size=0.9, plot=False, log_transform=False, fit_residuals=False, set_to_normalize=False, subtract_median=False, subtract_polynomial=False, use_fluxes=False):
+
         """
         Function to predict light curve behavior using Gaussian Process Regression
         ===============================================
@@ -1626,7 +1632,7 @@ class GP3D(GP):
         median_combine_gps: Flag to median combine the GP fits to each individual SN to create a final median light curve template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         """
-        if not median_combine_gps:#test_size is not None:
+        if not subtract_median and not subtract_polynomial:#test_size is not None:
             ### Fitting sample of SNe altogether
         
             gaussian_process, X_test, kernel_params = self.run_gp(filtlist, phasemin, phasemax, test_size=test_size, plot=plot, log_transform=log_transform, fit_residuals=fit_residuals, use_fluxes=use_fluxes)
@@ -1656,7 +1662,6 @@ class GP3D(GP):
                                 test_prediction + 1.96*std_prediction,
                                 alpha=0.2,
                         )
-                        # ADD OPTION TO DISPLAY DATA POITNS USED ?
 
                 if plot:
                     ax.invert_yaxis()
@@ -1666,14 +1671,15 @@ class GP3D(GP):
                     plt.legend()
                     plt.show()
 
-        elif median_combine_gps:
+        if subtract_median:
             ### We're fitting each SN individually and then median combining the full 2D GP
             gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
                                                                   phasemax, plot=plot, 
                                                                   log_transform=log_transform, 
                                                                   fit_residuals=fit_residuals, 
                                                                   set_to_normalize=set_to_normalize, 
-                                                                  median_combine_gps=True,
+                                                                  subtract_median=True,
+                                                                  subtract_polynomial=False,
                                                                   use_fluxes=use_fluxes)
             
             median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
@@ -1700,3 +1706,35 @@ class GP3D(GP):
             ax.set_ylabel('Wavelengths')
             plt.title('Final Median GP Fit')
             plt.show()
+
+        elif subtract_polynomial:
+            gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
+                                                                  phasemax, plot=plot, 
+                                                                  log_transform=log_transform, 
+                                                                  fit_residuals=fit_residuals, 
+                                                                  set_to_normalize=set_to_normalize,
+                                                                  subtract_median=False, 
+                                                                  subtract_polynomial=True)
+            print(np.shape(gaussian_processes), np.shape(phase_grid),np.shape(wl_grid))
+            
+            # fig = plt.figure()
+            # ax = fig.add_subplot(111, projection='3d')
+            
+            # if log_transform is not False:
+            #     X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
+            # else:
+            #     X, Y = np.meshgrid(phase_grid, wl_grid)
+
+            # # Z = median_gp
+
+            # ax.plot_surface(X, Y, Z)
+            # #ax.axes.set_zlim3d(bottom=-5, top=5)
+            # ax.invert_zaxis()
+            # ax.set_xlabel('Phase Grid')
+            # ax.set_ylabel('Wavelengths')
+            # ax.set_zlabel('Magnitude')
+            # plt.title('Final Polynomial GP Fit')
+            # plt.show()
+
+        else:
+            raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
