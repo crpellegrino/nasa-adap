@@ -104,7 +104,7 @@ class CAAT:
 
         #Create A List Of Folders To Parse
         if type_list is None:
-            type_list = ["SESNe", "SLSN-I", "SLSN-II", "SNII", "SNIIn"]
+            type_list = ["SESNe", "SLSN-I", "SLSN-II", "SNII", "SNIIn", "FBOT"]
 
         sndb_name = []
         sndb_type = []
@@ -440,8 +440,9 @@ class SN:
 
                 new_phot = []
                 for phot in self.data[filt]:
-                    phot['mag'] -= exts[i]
-                    phot['ext_corrected'] = True
+                    if not phot.get('ext_corrected', False):
+                        phot['mag'] -= exts[i]
+                        phot['ext_corrected'] = True
                     new_phot.append(phot)
 
                 self.data[filt] = new_phot
@@ -457,8 +458,9 @@ class SN:
 
                     new_phot = []
                     for phot in self.shifted_data[filt]:
-                        phot['mag'] -= exts[i]
-                        phot['ext_corrected'] = True
+                        if not phot.get('ext_corrected', False):
+                            phot['mag'] -= exts[i]
+                            phot['ext_corrected'] = True
                         new_phot.append(phot)
 
                     self.shifted_data[filt] = new_phot
@@ -908,6 +910,11 @@ class GP(Fitter):
     """
     GP fit to a single band
     """
+    wle = {'u': 3560,  'g': 4830, 'r': 6260, 'i': 7670, 'z': 8890, 'y': 9600, 'w':5985, 'Y': 9600,
+           'U': 3600,  'B': 4380, 'V': 5450, 'R': 6410, 'G': 6730, 'E': 6730, 'I': 7980, 'J': 12200, 'H': 16300,
+           'K': 21900, 'UVW2': 2030, 'UVM2': 2231, 'UVW1': 2634, 'F': 1516, 'N': 2267, 'o': 6790, 'c': 5330,
+           'W': 33526, 'Q': 46028
+    }
 
     def __init__(self, sne_collection, kernel):
         super().__init__(sne_collection)
@@ -1032,11 +1039,6 @@ class GP3D(GP):
     """
     GP fit to all bands and epochs
     """
-    wle = {'u': 3560,  'g': 4830, 'r': 6260, 'i': 7670, 'z': 8890, 'y': 9600, 'w':5985, 'Y': 9600,
-           'U': 3600,  'B': 4380, 'V': 5450, 'R': 6410, 'G': 6730, 'E': 6730, 'I': 7980, 'J': 12200, 'H': 16300,
-           'K': 21900, 'UVW2': 2030, 'UVM2': 2231, 'UVW1': 2634, 'F': 1516, 'N': 2267, 'o': 6790, 'c': 5330,
-           'W': 33526, 'Q': 46028
-    }
 
     @staticmethod
     def interpolate_grid(grid, interp_array, filter_window=171):
