@@ -426,7 +426,6 @@ class SN:
 
             self.shifted_data = shifted_data
 
-
     def convert_to_fluxes(self):
         """
         Converts the saved photometric magnitudes to fluxes
@@ -552,9 +551,9 @@ class SN:
 
                 new_phot = []
                 for phot in self.data[filt]:
-                    if not phot.get('ext_corrected', False):
-                        phot['mag'] -= exts[i]
-                        phot['ext_corrected'] = True
+                    if not phot.get("ext_corrected", False):
+                        phot["mag"] -= exts[i]
+                        phot["ext_corrected"] = True
                     new_phot.append(phot)
 
                 self.data[filt] = new_phot
@@ -570,9 +569,9 @@ class SN:
 
                     new_phot = []
                     for phot in self.shifted_data[filt]:
-                        if not phot.get('ext_corrected', False):
-                            phot['mag'] -= exts[i]
-                            phot['ext_corrected'] = True
+                        if not phot.get("ext_corrected", False):
+                            phot["mag"] -= exts[i]
+                            phot["ext_corrected"] = True
                         new_phot.append(phot)
 
                     self.shifted_data[filt] = new_phot
@@ -608,8 +607,12 @@ class SN:
                 self.convert_to_fluxes()
             data_to_plot = self.data
 
-        Plot().plot_sn_data(sn_class=self,data_to_plot=data_to_plot,filts_to_plot=filts_to_plot,plot_fluxes=plot_fluxes,)
-
+        Plot().plot_sn_data(
+            sn_class=self,
+            data_to_plot=data_to_plot,
+            filts_to_plot=filts_to_plot,
+            plot_fluxes=plot_fluxes,
+        )
 
     def fit_for_max(self, filt, shift_array=[-3, -2, -1, 0, 1, 2, 3], plot=False, offset=0):
         """
@@ -618,9 +621,9 @@ class SN:
         to shift the lightcurve over,
         and returns estimates of the peak MJD and mag at peak
         """
-        mjd_array = np.asarray([phot['mjd'] for phot in self.data[filt] if not phot.get('nondetection', False)])
-        mag_array = np.asarray([phot['mag'] for phot in self.data[filt] if not phot.get('nondetection', False)])
-        err_array = np.asarray([phot['err'] for phot in self.data[filt] if not phot.get('nondetection', False)])
+        mjd_array = np.asarray([phot["mjd"] for phot in self.data[filt] if not phot.get("nondetection", False)])
+        mag_array = np.asarray([phot["mag"] for phot in self.data[filt] if not phot.get("nondetection", False)])
+        err_array = np.asarray([phot["err"] for phot in self.data[filt] if not phot.get("nondetection", False)])
 
         if len(mag_array) < 4:  # == 0:
             return None, None
@@ -639,8 +642,8 @@ class SN:
 
         if len(guess_best_fit) == 0:
             return None, None
-        
-        guess_mjd_max = guess_phases[np.where((guess_best_fit==min(guess_best_fit)))[0]][0]
+
+        guess_mjd_max = guess_phases[np.where((guess_best_fit == min(guess_best_fit)))[0]][0]
 
         ### Do this because the array might not be ordered
         inds_to_fit = np.where((mjd_array > guess_mjd_max - 10) & (mjd_array < guess_mjd_max + 10))
@@ -755,10 +758,7 @@ class SN:
         nondets = np.asarray([phot.get("nondetection", False) for phot in self.data[filt]])
 
         if plot:
-            Plot().plot_shift_to_max(sn_class=self, filt=filt) #TODO: update w/ nondetections and fluxes as seen in comments below
-            # plt.errorbar(mjds[np.where((nondets==False))[0]], mags[np.where((nondets==False))[0]], yerr=errs[np.where((nondets==False))[0]], fmt='o', mec='black', color=colors.get(filt, 'k'), label=filt+'-band')
-            # plt.scatter(mjds[np.where((nondets==True))[0]], mags[np.where((nondets==True))[0]], marker='v', color=colors.get(filt, 'k'), alpha=0.2)
-
+            Plot().plot_shift_to_max(sn_class=self, mjds=mjds, mags=mags, errs=errs, nondets=nondets, filt=filt)
 
         self.shifted_data.setdefault(filt, []).extend(
             [
@@ -903,7 +903,6 @@ class SNCollection:
         """plot all light curves of given subtype/collection
         can plot single, multiple or all bands"""
         Plot().plot_all_lcs(sn_class=self, filts=filts, log_transform=log_transform, plot_fluxes=plot_fluxes)
-        # TODO: W/ CRAIG FLUX FEATURE from master
 
 
 class SNType(SNCollection):
@@ -982,10 +981,35 @@ class GP(Fitter):
     """
     GP fit to a single band
     """
-    wle = {'u': 3560,  'g': 4830, 'r': 6260, 'i': 7670, 'z': 8890, 'y': 9600, 'w':5985, 'Y': 9600,
-           'U': 3600,  'B': 4380, 'V': 5450, 'R': 6410, 'G': 6730, 'E': 6730, 'I': 7980, 'J': 12200, 'H': 16300,
-           'K': 21900, 'UVW2': 2030, 'UVM2': 2231, 'UVW1': 2634, 'F': 1516, 'N': 2267, 'o': 6790, 'c': 5330,
-           'W': 33526, 'Q': 46028
+
+    wle = {
+        "u": 3560,
+        "g": 4830,
+        "r": 6260,
+        "i": 7670,
+        "z": 8890,
+        "y": 9600,
+        "w": 5985,
+        "Y": 9600,
+        "U": 3600,
+        "B": 4380,
+        "V": 5450,
+        "R": 6410,
+        "G": 6730,
+        "E": 6730,
+        "I": 7980,
+        "J": 12200,
+        "H": 16300,
+        "K": 21900,
+        "UVW2": 2030,
+        "UVM2": 2231,
+        "UVW1": 2634,
+        "F": 1516,
+        "N": 2267,
+        "o": 6790,
+        "c": 5330,
+        "W": 33526,
+        "Q": 46028,
     }
 
     def __init__(self, sne_collection, kernel):
@@ -1107,6 +1131,7 @@ class GP(Fitter):
                 errs=errs,
                 filt=filt,
                 use_fluxes=use_fluxes,
+            )
 
 
 class GP3D(GP):
@@ -1586,21 +1611,21 @@ class GP3D(GP):
 
         return residuals
 
-
-    def run_gp(self,
-               filtlist,
-               phasemin,
-               phasemax,
-               test_size=0.9,
-               plot=False,
-               log_transform=False,
-               fit_residuals=False,
-               set_to_normalize=None,
-               subtract_median=False,
-               subtract_polynomial=False,
-               interactive=False,
-               use_fluxes=False,
-              ):
+    def run_gp(
+        self,
+        filtlist,
+        phasemin,
+        phasemax,
+        test_size=0.9,
+        plot=False,
+        log_transform=False,
+        fit_residuals=False,
+        set_to_normalize=None,
+        subtract_median=False,
+        subtract_polynomial=False,
+        interactive=False,
+        use_fluxes=False,
+    ):
         """
         Function to run the Gaussian Process Regression
         ===============================================
@@ -1642,29 +1667,31 @@ class GP3D(GP):
             gaussian_processes = []
 
             if subtract_polynomial:
-                phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(phasemin,
-                                                                                         phasemax,
-                                                                                         filtlist,
-                                                                                         all_template_phases,
-                                                                                         all_template_wls,
-                                                                                         all_template_mags,
-                                                                                         all_template_errs,
-                                                                                         log_transform=log_transform,
-                                                                                         plot=plot,
-                                                                                         use_fluxes=use_fluxes,
-                                                                                         )
+                phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(
+                    phasemin,
+                    phasemax,
+                    filtlist,
+                    all_template_phases,
+                    all_template_wls,
+                    all_template_mags,
+                    all_template_errs,
+                    log_transform=log_transform,
+                    plot=plot,
+                    use_fluxes=use_fluxes,
+                )
             elif subtract_median:
-                phase_grid, wl_grid, mag_grid, err_grid = self.construct_median_grid(phasemin,
-                                                                                     phasemax,
-                                                                                     filtlist,
-                                                                                     all_template_phases,
-                                                                                     all_template_wls,
-                                                                                     all_template_mags,
-                                                                                     all_template_errs,
-                                                                                     log_transform=log_transform,
-                                                                                     plot=plot,
-                                                                                     use_fluxes=use_fluxes,
-                                                                                     )
+                phase_grid, wl_grid, mag_grid, err_grid = self.construct_median_grid(
+                    phasemin,
+                    phasemax,
+                    filtlist,
+                    all_template_phases,
+                    all_template_wls,
+                    all_template_mags,
+                    all_template_errs,
+                    log_transform=log_transform,
+                    plot=plot,
+                    use_fluxes=use_fluxes,
+                )
             else:
                 raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
 
@@ -1679,7 +1706,7 @@ class GP3D(GP):
                     mag_grid,
                     err_grid,
                     log_transform=log_transform,
-                    plot=False, #TODO: are we sure we want to hard-code False for grid subtraction?
+                    plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
                     use_fluxes=use_fluxes,
                 )
 
@@ -1742,30 +1769,30 @@ class GP3D(GP):
                             inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
 
                         key_to_plot = "flux" if use_fluxes else "mag"
-                        Plot().plot_run_gp_overlay(fig=fig,
-                                                    ax=ax,
-                                                    gp_class=self,
-                                                    sn_class=sn,
-                                                    test_times=test_times,
-                                                    test_prediction=test_prediction,
-                                                    std_prediction=std_prediction,
-                                                    template_mags=template_mags,
-                                                    residuals=residuals,
-                                                    phase_residuals=phase_residuals,
-                                                    wl_residuals=wl_residuals,
-                                                    err_residuals=err_residuals,
-                                                    inds_to_fit=inds_to_fit,
-                                                    log_transform=log_transform,
-                                                    filt=filt,
-                                                    use_fluxes=use_fluxes,
-                                                    key_to_plot=key_to_plot,
-                                                    phasemin=phasemin,
-                                                    phasemax=phasemax,
-                                                )
-
+                        Plot().plot_run_gp_overlay(
+                            fig=fig,
+                            ax=ax,
+                            gp_class=self,
+                            sn_class=sn,
+                            test_times=test_times,
+                            test_prediction=test_prediction,
+                            std_prediction=std_prediction,
+                            template_mags=template_mags,
+                            residuals=residuals,
+                            phase_residuals=phase_residuals,
+                            wl_residuals=wl_residuals,
+                            err_residuals=err_residuals,
+                            inds_to_fit=inds_to_fit,
+                            log_transform=log_transform,
+                            filt=filt,
+                            use_fluxes=use_fluxes,
+                            key_to_plot=key_to_plot,
+                            phasemin=phasemin,
+                            phasemax=phasemax,
+                        )
 
                         if (subtract_median or subtract_polynomial) and interactive:
-                            use_for_template = input('Use this fit to construct a template? y/n')
+                            use_for_template = input("Use this fit to construct a template? y/n")
 
                     if subtract_median or subtract_polynomial:
 
@@ -1823,7 +1850,7 @@ class GP3D(GP):
                             gaussian_processes.append(gp_grid)
                     kernel_params.append(gaussian_process.kernel_.theta)
 
-            if subtract_median or subtract_polynomial: 
+            if subtract_median or subtract_polynomial:
                 return gaussian_processes, phase_grid, wl_grid
             return None, phase_residuals, kernel_params
 
@@ -1849,21 +1876,20 @@ class GP3D(GP):
 
             return gaussian_process, X_test, None
 
-
-    def predict_gp(self,
-                   filtlist,
-                   phasemin,
-                   phasemax,
-                   test_size=0.9,
-                   plot=False,
-                   log_transform=False,
-                   fit_residuals=False,
-                   set_to_normalize=False,
-                   subtract_median=False,
-                   subtract_polynomial=False,
-                   use_fluxes=False,
-                  ):
-
+    def predict_gp(
+        self,
+        filtlist,
+        phasemin,
+        phasemax,
+        test_size=0.9,
+        plot=False,
+        log_transform=False,
+        fit_residuals=False,
+        set_to_normalize=False,
+        subtract_median=False,
+        subtract_polynomial=False,
+        use_fluxes=False,
+    ):
         """
         Function to predict light curve behavior using Gaussian Process Regression
         ===============================================
@@ -1878,7 +1904,7 @@ class GP3D(GP):
         median_combine_gps: Flag to median combine the GP fits to each individual SN to create a final median light curve template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         """
-        if not subtract_median and not subtract_polynomial:#test_size is not None:
+        if not subtract_median and not subtract_polynomial:  # test_size is not None:
             ### Fitting sample of SNe altogether
 
             gaussian_process, X_test, kernel_params = self.run_gp(
@@ -1921,15 +1947,19 @@ class GP3D(GP):
 
         if subtract_median:
             ### We're fitting each SN individually and then median combining the full 2D GP
-            gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
-                                                                  phasemax, plot=plot, 
-                                                                  log_transform=log_transform, 
-                                                                  fit_residuals=fit_residuals, 
-                                                                  set_to_normalize=set_to_normalize, 
-                                                                  subtract_median=True,
-                                                                  subtract_polynomial=False,
-                                                                  use_fluxes=use_fluxes)
-            
+            gaussian_processes, phase_grid, wl_grid = self.run_gp(
+                filtlist,
+                phasemin,
+                phasemax,
+                plot=plot,
+                log_transform=log_transform,
+                fit_residuals=fit_residuals,
+                set_to_normalize=set_to_normalize,
+                subtract_median=True,
+                subtract_polynomial=False,
+                use_fluxes=use_fluxes,
+            )
+
             median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
 
             if log_transform is not False:
@@ -1942,34 +1972,20 @@ class GP3D(GP):
             Plot().plot_construct_grid(gp_class=self, X=X, Y=Y, Z=Z, grid_type="final", use_fluxes=use_fluxes)
 
         elif subtract_polynomial:
-            gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
-                                                                  phasemax, plot=plot, 
-                                                                  log_transform=log_transform, 
-                                                                  fit_residuals=fit_residuals, 
-                                                                  set_to_normalize=set_to_normalize,
-                                                                  subtract_median=False, 
-                                                                  subtract_polynomial=True)
-            print(np.shape(gaussian_processes), np.shape(phase_grid),np.shape(wl_grid))
-            
-            # fig = plt.figure()
-            # ax = fig.add_subplot(111, projection='3d')
-            
-            # if log_transform is not False:
-            #     X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
-            # else:
-            #     X, Y = np.meshgrid(phase_grid, wl_grid)
+            gaussian_processes, phase_grid, wl_grid = self.run_gp(
+                filtlist,
+                phasemin,
+                phasemax,
+                plot=plot,
+                log_transform=log_transform,
+                fit_residuals=fit_residuals,
+                set_to_normalize=set_to_normalize,
+                subtract_median=False,
+                subtract_polynomial=True,
+            )
+            print(np.shape(gaussian_processes), np.shape(phase_grid), np.shape(wl_grid))
 
-            # # Z = median_gp
-
-            # ax.plot_surface(X, Y, Z)
-            # #ax.axes.set_zlim3d(bottom=-5, top=5)
-            # ax.invert_zaxis()
-            # ax.set_xlabel('Phase Grid')
-            # ax.set_ylabel('Wavelengths')
-            # ax.set_zlabel('Magnitude')
-            # plt.title('Final Polynomial GP Fit')
-            # plt.show()
-            #TODO: double check if need Plot() function here
+            Plot().plot_construct_grid(gp_class=self, X=X, Y=Y, Z=Z, grid_type="final", use_fluxes=use_fluxes)
 
         else:
             raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
@@ -1985,7 +2001,13 @@ class Plot:
         fig, ax = plt.subplots()
         return fig, ax
 
-    def plot_sn_data(self, sn_class, data_to_plot, filts_to_plot=["all"], plot_fluxes=False,):
+    def plot_sn_data(
+        self,
+        sn_class,
+        data_to_plot,
+        filts_to_plot=["all"],
+        plot_fluxes=False,
+    ):
         sn = sn_class
 
         fig, ax = plt.subplots()
@@ -2087,32 +2109,20 @@ class Plot:
 
         # plt.show()
 
-    def plot_shift_to_max(self, sn_class, filt): #TODO: add in use_fluxes toggle to plot and show shifted fluxes ?
+    def plot_shift_to_max(self, sn_class, mjds, mags, errs, nondets, filt):
         sn = sn_class
 
-        if not sn.data:
-            sn.load_swift_data()
-            sn.load_json_data()
-
-        if filt not in sn.data.keys():
-            return [], [], []
-
-        if not sn.info.get("peak_mjd") and not sn.info.get("peak_mag"):
-            print("For plotting purposes, please find peak using SN.fit_for_max() first")
-
-        mjds = np.asarray([phot["mjd"] for phot in sn.data[filt]]) - sn.info["peak_mjd"]
-        mags = np.asarray([phot["mag"] for phot in sn.data[filt]]) - sn.info["peak_mag"]
-        errs = np.asarray([phot["err"] for phot in sn.data[filt]])
-
         plt.errorbar(
-            mjds,
-            mags,
-            yerr=errs,
+            mjds[np.where((nondets == False))[0]],
+            mags[np.where((nondets == False))[0]],
+            yerr=errs[np.where((nondets == False))[0]],
             fmt="o",
             mec="black",
             color=colors.get(filt, "k"),
             label=filt + "-band",
         )
+        plt.scatter(mjds[np.where((nondets == True))[0]], mags[np.where((nondets == True))[0]], marker="v", color=colors.get(filt, "k"), alpha=0.2)
+
         plt.xlabel("Shifted Time [days]")
         plt.ylabel("Shifted Magnitude")
         plt.title(sn.name + "-Shifted Data")
@@ -2120,20 +2130,19 @@ class Plot:
         plt.gca().invert_yaxis()
         plt.show()
 
-
     def plot_all_lcs(self, sn_class, filts=["all"], log_transform=False, plot_fluxes=False):
         """plot all light curves of given subtype/collection
-            can plot single, multiple or all bands"""
+        can plot single, multiple or all bands"""
         sne = sn_class.sne
         print(f"Plotting all {len(sne)} lightcurves in the collection")
 
         fig, ax = plt.subplots()
-        if filts[0] is not 'all':
+        if filts[0] is not "all":
             filts_to_plot = filts
         else:
             filts_to_plot = colors.keys()
 
-        for i,f in enumerate(filts_to_plot):
+        for i, f in enumerate(filts_to_plot):
             for sn in sne:
                 mjds, mags, errs, nondets = sn.shift_to_max(f, shift_fluxes=plot_fluxes)
                 if len(mjds) > 0:
@@ -2142,60 +2151,55 @@ class Plot:
 
                     if plot_fluxes:
 
-                        nondet_inds = np.where((nondets==False))[0]
-                        det_inds = np.where((nondets==True))[0]
-                        ax.errorbar(mjds[nondet_inds],
-                                    mags[nondet_inds],
-                                    yerr=errs[nondet_inds],
-                                    fmt='o',
-                                    mec='black',
-                                    color=colors.get(f, 'k'),
-                                    label=f)
-                        ax.scatter(mjds[det_inds], mags[det_inds], marker='v', alpha=0.2, color=colors.get(f, 'k'))
+                        nondet_inds = np.where((nondets == False))[0]
+                        det_inds = np.where((nondets == True))[0]
+                        ax.errorbar(
+                            mjds[nondet_inds], mags[nondet_inds], yerr=errs[nondet_inds], fmt="o", mec="black", color=colors.get(f, "k"), label=f
+                        )
+                        ax.scatter(mjds[det_inds], mags[det_inds], marker="v", alpha=0.2, color=colors.get(f, "k"))
                     else:
-                        ax.errorbar(mjds, mags, yerr=errs, fmt='o', mec='black', color=colors.get(f, 'k'), label=f)
-            filtText = f+'\n'
-            plt.figtext(0.95, 0.75-(0.05*i), filtText, fontsize=14,color=colors.get(f))
-        
+                        ax.errorbar(mjds, mags, yerr=errs, fmt="o", mec="black", color=colors.get(f, "k"), label=f)
+            filtText = f + "\n"
+            plt.figtext(0.95, 0.75 - (0.05 * i), filtText, fontsize=14, color=colors.get(f))
+
         if log_transform is False:
-            ax.set_xlabel('Shifted Time [days]')
+            ax.set_xlabel("Shifted Time [days]")
         else:
-            ax.set_xlabel('Log(Shifted Time)')
+            ax.set_xlabel("Log(Shifted Time)")
 
         if plot_fluxes:
-            ax.set_ylabel('Shifted Fluxes')
+            ax.set_ylabel("Shifted Fluxes")
         else:
-            ax.set_ylabel('Shifted Magnitudes')
+            ax.set_ylabel("Shifted Magnitudes")
             plt.gca().invert_yaxis()
-        plt.title('Lightcurves for collection of {} objects\nType:{}, Subtype:{}'.format(len(sne),sn_class.type,sn_class.subtype))
+        plt.title("Lightcurves for collection of {} objects\nType:{}, Subtype:{}".format(len(sne), sn_class.type, sn_class.subtype))
         plt.show()
-
 
     def plot_gp_predict_gp(self, gp_class, phases, mean_prediction, std_prediction, mags, errs, filt, use_fluxes=False):
         gp = gp_class
 
         fig, ax = plt.subplots()
-        ax.plot(sorted(phases), mean_prediction, color='k', label='GP fit',zorder=10)
-        ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt='o', color=colors.get(filt, 'k'), alpha=0.2, label=filt,zorder=0)
+        ax.plot(sorted(phases), mean_prediction, color="k", label="GP fit", zorder=10)
+        ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt="o", color=colors.get(filt, "k"), alpha=0.2, label=filt, zorder=0)
         ax.fill_between(
-                sorted(phases.ravel()),
-                mean_prediction - 1.96*std_prediction,
-                mean_prediction + 1.96*std_prediction,
-                alpha=0.5,
-                color='lightgray',
-                label='96\% Confidence Interval',
-                zorder=10
+            sorted(phases.ravel()),
+            mean_prediction - 1.96 * std_prediction,
+            mean_prediction + 1.96 * std_prediction,
+            alpha=0.5,
+            color="lightgray",
+            label="96\% Confidence Interval",
+            zorder=10,
         )
-        
-        plt.xlabel('Shifted Time [days]')
+
+        plt.xlabel("Shifted Time [days]")
         if use_fluxes:
-            plt.ylabel('Fluxes')
+            plt.ylabel("Fluxes")
         else:
             plt.gca().invert_yaxis()
-            plt.ylabel('Shifted Magnitude')
-        plt.title('Single-Filter GP Fit')
+            plt.ylabel("Shifted Magnitude")
+        plt.title("Single-Filter GP Fit")
         handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles, labels, loc='center left', bbox_to_anchor=(1, 0.5))
+        ax.legend(handles, labels, loc="center left", bbox_to_anchor=(1, 0.5))
         plt.show()
 
     def plot_construct_grid(
@@ -2222,15 +2226,14 @@ class Plot:
         ax = fig.add_subplot(111, projection="3d")
 
         ax.plot_surface(X, Y, Z)
-        ax.invert_zaxis()
         ax.set_xlabel("Phase Grid")
         ax.set_ylabel("Wavelengths [nm]")
 
         if use_fluxes:
             ax.set_zlabel("Flux")
         else:
+            ax.invert_zaxis()
             ax.set_zlabel("Magnitude")
-            #TODO: do we want to add in invert_axis() ?
 
         if grid_type == "polynomial":
             ax.set_title("Polynomial Grid / Templates")
@@ -2276,7 +2279,7 @@ class Plot:
         sn = sn_class
 
         fig, ax = plt.subplots()
-        ax.plot(phase_grid, mag_grid[:, wl_ind], color=colors.get(filt, 'k'), label='template')
+        ax.plot(phase_grid, mag_grid[:, wl_ind], color=colors.get(filt, "k"), label="template")
 
         plt.axhline(y=0, linestyle="--", color="gray")
         ax.errorbar([], [], yerr=[], marker="o", color="k", label="residuals", alpha=0.2)
@@ -2322,7 +2325,7 @@ class Plot:
         use_fluxes,
         key_to_plot,
         phasemin,
-        phasemax
+        phasemax,
     ):
         gpc = gp_class
         sn = sn_class
@@ -2411,11 +2414,11 @@ class Plot:
 
         if not use_fluxes:
             ax.invert_yaxis()
-            ax.set_ylabel('Magnitude Relative to Peak')
+            ax.set_ylabel("Magnitude Relative to Peak")
         else:
-            ax.set_ylabel('Flux Relative to Peak')
+            ax.set_ylabel("Flux Relative to Peak")
 
-        ax.set_xlabel('Normalized Time [days]')
+        ax.set_xlabel("Normalized Time [days]")
         plt.title(sn.name)
         plt.legend()
         # plt.show()
@@ -2427,10 +2430,10 @@ class Plot:
         ax.set_xlabel("Phase Grid")
         ax.set_ylabel("Wavelengths")
         if use_fluxes:
-            ax.set_zlabel('Fluxes')
+            ax.set_zlabel("Fluxes")
         else:
             ax.invert_zaxis()
-            ax.set_zlabel('Magnitude')
+            ax.set_zlabel("Magnitude")
         plt.tight_layout()
         # plt.show()
 
