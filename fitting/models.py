@@ -1696,6 +1696,7 @@ class GP3D(GP):
                 raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
 
             for sn in self.collection.sne:
+              
                 residuals = self.subtract_data_from_grid(
                     sn,
                     phasemin,
@@ -1850,9 +1851,10 @@ class GP3D(GP):
                             gaussian_processes.append(gp_grid)
                     kernel_params.append(gaussian_process.kernel_.theta)
 
-            if subtract_median or subtract_polynomial:
-                return gaussian_processes, phase_grid, wl_grid
-            return None, phase_residuals, kernel_params
+            #if not subtract_median and not subtract_polynomial: 
+            #    return gaussian_processes, phase_grid, wl_grid
+            #return None, phase_residuals, kernel_params
+            return gaussian_processes, phase_grid, kernel_params, wl_grid
 
         else:  # called if we are not fitting to residuals
             all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(
@@ -1907,7 +1909,7 @@ class GP3D(GP):
         if not subtract_median and not subtract_polynomial:  # test_size is not None:
             ### Fitting sample of SNe altogether
 
-            gaussian_process, X_test, kernel_params = self.run_gp(
+            gaussian_process, X_test, kernel_params, _ = self.run_gp(
                 filtlist,
                 phasemin,
                 phasemax,
@@ -1915,6 +1917,8 @@ class GP3D(GP):
                 plot=plot,
                 log_transform=log_transform,
                 fit_residuals=fit_residuals,
+                subtract_polynomial=subtract_polynomial,
+                subtract_median=subtract_median,
                 use_fluxes=use_fluxes,
             )
 
@@ -1945,9 +1949,9 @@ class GP3D(GP):
                             use_fluxes=use_fluxes,
                         )
 
-        if subtract_median:
+        else:
             ### We're fitting each SN individually and then median combining the full 2D GP
-            gaussian_processes, phase_grid, wl_grid = self.run_gp(
+            gaussian_processes, phase_grid, _, wl_grid = self.run_gp(
                 filtlist,
                 phasemin,
                 phasemax,
@@ -1955,8 +1959,8 @@ class GP3D(GP):
                 log_transform=log_transform,
                 fit_residuals=fit_residuals,
                 set_to_normalize=set_to_normalize,
-                subtract_median=True,
-                subtract_polynomial=False,
+                subtract_median=subtract_median,
+                subtract_polynomial=subtract_polynomial,
                 use_fluxes=use_fluxes,
             )
 
@@ -1971,24 +1975,37 @@ class GP3D(GP):
 
             Plot().plot_construct_grid(gp_class=self, X=X, Y=Y, Z=Z, grid_type="final", use_fluxes=use_fluxes)
 
-        elif subtract_polynomial:
-            gaussian_processes, phase_grid, wl_grid = self.run_gp(
-                filtlist,
-                phasemin,
-                phasemax,
-                plot=plot,
-                log_transform=log_transform,
-                fit_residuals=fit_residuals,
-                set_to_normalize=set_to_normalize,
-                subtract_median=False,
-                subtract_polynomial=True,
-            )
-            print(np.shape(gaussian_processes), np.shape(phase_grid), np.shape(wl_grid))
+        # elif subtract_polynomial:      
+        #     gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
+        #                                                           phasemax, plot=plot, 
+        #                                                           log_transform=log_transform, 
+        #                                                           fit_residuals=fit_residuals, 
+        #                                                           set_to_normalize=set_to_normalize,
+        #                                                           subtract_median=False, 
+        #                                                           subtract_polynomial=True)
+        #     print(np.shape(gaussian_processes), np.shape(phase_grid),np.shape(wl_grid))
+            
+        #     # fig = plt.figure()
+        #     # ax = fig.add_subplot(111, projection='3d')
+            
+        #     # if log_transform is not False:
+        #     #     X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
+        #     # else:
+        #     #     X, Y = np.meshgrid(phase_grid, wl_grid)
 
-            Plot().plot_construct_grid(gp_class=self, X=X, Y=Y, Z=Z, grid_type="final", use_fluxes=use_fluxes)
+        #     # # Z = median_gp
 
-        else:
-            raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
+        #     # ax.plot_surface(X, Y, Z)
+        #     # #ax.axes.set_zlim3d(bottom=-5, top=5)
+        #     # ax.invert_zaxis()
+        #     # ax.set_xlabel('Phase Grid')
+        #     # ax.set_ylabel('Wavelengths')
+        #     # ax.set_zlabel('Magnitude')
+        #     # plt.title('Final Polynomial GP Fit')
+        #     # plt.show()
+
+        # else:
+        #     raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
 
 
 class Plot:
