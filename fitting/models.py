@@ -1769,28 +1769,30 @@ class GP3D(GP):
                         else:
                             inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
 
-                        key_to_plot = "flux" if use_fluxes else "mag"
-                        Plot().plot_run_gp_overlay(
-                            fig=fig,
-                            ax=ax,
-                            gp_class=self,
-                            sn_class=sn,
-                            test_times=test_times,
-                            test_prediction=test_prediction,
-                            std_prediction=std_prediction,
-                            template_mags=template_mags,
-                            residuals=residuals,
-                            phase_residuals=phase_residuals,
-                            wl_residuals=wl_residuals,
-                            err_residuals=err_residuals,
-                            inds_to_fit=inds_to_fit,
-                            log_transform=log_transform,
-                            filt=filt,
-                            use_fluxes=use_fluxes,
-                            key_to_plot=key_to_plot,
-                            phasemin=phasemin,
-                            phasemax=phasemax,
-                        )
+                        
+                        if plot:
+                            key_to_plot = "flux" if use_fluxes else "mag"
+                            Plot().plot_run_gp_overlay(
+                                fig=fig,
+                                ax=ax,
+                                gp_class=self,
+                                sn_class=sn,
+                                test_times=test_times,
+                                test_prediction=test_prediction,
+                                std_prediction=std_prediction,
+                                template_mags=template_mags,
+                                residuals=residuals,
+                                phase_residuals=phase_residuals,
+                                wl_residuals=wl_residuals,
+                                err_residuals=err_residuals,
+                                inds_to_fit=inds_to_fit,
+                                log_transform=log_transform,
+                                filt=filt,
+                                use_fluxes=use_fluxes,
+                                key_to_plot=key_to_plot,
+                                phasemin=phasemin,
+                                phasemax=phasemax,
+                            )
 
                         if (subtract_median or subtract_polynomial) and interactive:
                             use_for_template = input("Use this fit to construct a template? y/n")
@@ -2281,6 +2283,8 @@ class Plot:
                 plt.title(filt)
                 # plt.show()
 
+        plt.show()
+
     def plot_subtract_data_from_grid(
         self,
         gp_class,
@@ -2452,7 +2456,7 @@ class Plot:
             ax.invert_zaxis()
             ax.set_zlabel("Magnitude")
         plt.tight_layout()
-        # plt.show()
+        plt.show()
 
     def plot_predict_gp(self, fig, ax, gp_class, test_prediction, std_prediction, log_transform, filt, use_fluxes=False):
         gpc = gp_class
