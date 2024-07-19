@@ -1809,11 +1809,14 @@ class GP3D(GP):
                             waves_to_predict = np.unique(wl_residuals)
                             diffs = abs(np.subtract.outer(wl_grid, waves_to_predict))
 
+                        phases_to_predict = np.unique(phase_residuals)
+
                         ### Compare the wavelengths of our measured filters to those in the wl grid
                         ### and fit for those grid wls that are within 500 A of one of our measurements
                         wl_inds_fitted = np.unique(np.where((diffs < 500.0))[0])
+                        phase_inds_fitted = np.unique(np.where((phase_grid >= min(phases_to_predict)) & (phase_grid <= max(phases_to_predict)))[0])
 
-                        x, y = np.meshgrid(phase_grid, wl_grid[wl_inds_fitted])
+                        x, y = np.meshgrid(phase_grid[phase_inds_fitted], wl_grid[wl_inds_fitted])
                         test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
                         test_prediction = np.asarray(test_prediction)
 
@@ -1821,8 +1824,8 @@ class GP3D(GP):
 
                         for wl_ind in wl_inds_fitted:
 
-                            for i in range(len(phase_grid)):
-                                template_mags.append(mag_grid[i, wl_ind])
+                            for phase_ind in phase_inds_fitted:
+                                template_mags.append(mag_grid[phase_ind, wl_ind])
                                 ###NOTE: Some of these template mags are NaNs
 
                         template_mags = np.asarray(template_mags).reshape((len(x), -1))
@@ -1834,7 +1837,9 @@ class GP3D(GP):
                         gp_grid[:] = np.nan
                         for i, col in enumerate(test_prediction_reshaped[:,]):
                             current_wl_grid_ind = wl_inds_fitted[i]
-                            gp_grid[current_wl_grid_ind, :] = col
+                            for j in range(len(col)):
+                                current_phase_grid_ind = phase_inds_fitted[j]
+                                gp_grid[current_wl_grid_ind, current_phase_grid_ind] = col[j]
 
                         if plot:
                             Plot().plot_run_gp_surface(
