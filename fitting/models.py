@@ -191,20 +191,22 @@ class SN:
 
     base_path = "../data/"
 
-    ### All ZPs taken from SVO, in Jy and in the respective magnitude systems for those filts
-    zps = {
-        "UVW2": 744.84,
-        "UVM2": 785.58,
-        "UVW1": 940.99,
-        "U": 1460.59,
-        "B": 4088.50,
-        "V": 3657.87,
-        "g": 487.6,
-        "r": 282.9,
-        "i": 184.9,
-        "o": 238.9,
-        "c": 389.3,
-    }
+    ### All ZPs for AB mags, in 1e-11 erg/s/cm**2/A
+    zps = {}
+    
+    # zps = {
+    #     "UVW2": 2502.2,#744.84,
+    #     "UVM2": 2158.3,#785.58,
+    #     "UVW1": 1510.9,#940.99,
+    #     "U": 847.1,#1460.59,
+    #     "B": 569.7,#4088.50,
+    #     "V": 362.8,#3657.87,
+    #     "g": 487.6,
+    #     "r": 282.9,
+    #     "i": 184.9,
+    #     "o": 238.9,
+    #     "c": 389.3,
+    # }
 
     wle = {
         "u": 3560,
@@ -267,6 +269,9 @@ class SN:
             self.info = {}
             self.shifted_data = {}
 
+        for filt, wl in self.wle.items():
+            self.zps[filt] = (10**-23 * 3e18 / wl) * 1e11
+
     def __repr__(self):
         return self.name
 
@@ -317,6 +322,18 @@ class SN:
             print("No Swift file for ", self.name)
             return
 
+        ### Magnitudes in the SOUSA output file are in Vega mags
+        ### We need to convert them to AB mags
+        ### From here: https://swift.gsfc.nasa.gov/analysis/uvot_digest/zeropts.html 
+        ab_minus_vega = {
+            'V': -0.01,
+            'B': -0.13,
+            'U': 1.02,
+            'UVW1': 1.51,
+            'UVM2': 1.69,
+            'UVW2': 1.73
+        }
+
         df = pd.read_csv(
             os.path.join(
                 self.base_path,
@@ -345,11 +362,17 @@ class SN:
 
         for i, row in df.iterrows():
             if not np.isnan(row["Mag"]):
-                self.data.setdefault(row["Filter"], []).append({"mag": row["Mag"], "err": row["MagErr"], "mjd": row["MJD"]})
+                self.data.setdefault(row["Filter"], []).append(
+                    {
+                        "mag": row["Mag"] + ab_minus_vega[row["Filter"]], 
+                        "err": row["MagErr"], 
+                        "mjd": row["MJD"]
+                    }
+                )
             else:
                 self.data.setdefault(row["Filter"], []).append(
                     {
-                        "mag": row["3SigMagLim"],
+                        "mag": row["3SigMagLim"] + ab_minus_vega[row["Filter"]],
                         "err": 0.01,
                         "mjd": row["MJD"],
                         "nondetection": True,
@@ -588,6 +611,10 @@ class SN:
         offset=0,
         plot_fluxes=False,
     ):
+        
+        if filts_to_plot[0] == "all":  # if individual filters not specified, plot all by default
+            filts_to_plot = colors.keys()
+        
         if not self.data:  # check if data/SN has not been previously read in/initialized
             self.load_swift_data()
             self.load_json_data()
@@ -2029,15 +2056,12 @@ class Plot:
         self,
         sn_class,
         data_to_plot,
-        filts_to_plot=["all"],
+        filts_to_plot,
         plot_fluxes=False,
     ):
         sn = sn_class
 
         fig, ax = plt.subplots()
-
-        if filts_to_plot[0] == "all":  # if individual filters not specified, plot all by default
-            filts_to_plot = colors.keys()
 
         for f in filts_to_plot:
             for filt, mag_list in data_to_plot.items():
