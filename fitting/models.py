@@ -449,7 +449,7 @@ class SN:
 
             self.shifted_data = shifted_data
 
-    def convert_to_fluxes(self):
+    def convert_to_fluxes(self, phasemin=-20, phasemax=50):
         """
         Converts the saved photometric magnitudes to fluxes
         Converts both shifted and unshifted data
@@ -507,7 +507,7 @@ class SN:
                         [
                             phot["mjd"]
                             for phot in self.shifted_data[filt]
-                            if not phot.get("nondetection", False) and phot["mjd"] > -20 and phot["mjd"] < 50
+                            if not phot.get("nondetection", False) and phot["mjd"] > phasemin and phot["mjd"] < phasemax
                         ]
                     )
                     if len(detection_mjds) > 0:
@@ -528,13 +528,21 @@ class SN:
                             if phot.get("nondetection", False):
                                 ### Check if this nondetection is close to either
                                 ### the first or last nondetection in this filter
-                                if abs(phot["mjd"] - min_nondetection) < 10 or abs(phot["mjd"] - max_nondetection) < 10:
+                                if abs(phot["mjd"] - min_nondetection) < 0.5 or abs(phot["mjd"] - max_nondetection) < 0.5:
                                     unshifted_mag = phot["mag"] + self.info["peak_mag"]
                                     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
                                         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
                                     )  # * 1e15
                                     phot["flux"] = shifted_flux
                                     phot["fluxerr"] = phot["err"]
+                                    new_phot.append(phot)
+                                else:
+                                    unshifted_mag = phot["mag"] + self.info["peak_mag"]
+                                    shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
+                                        self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
+                                    )  # * 1e15
+                                    phot["flux"] = shifted_flux
+                                    phot["fluxerr"] = phot["err"] * 10
                                     new_phot.append(phot)
                             else:
                                 unshifted_mag = phot["mag"] + self.info["peak_mag"]
@@ -1548,7 +1556,7 @@ class GP3D(GP):
                 if filt in sn.shifted_data.keys():
                     if use_fluxes:
                         sn.correct_for_galactic_extinction()
-                        sn.convert_to_fluxes()
+                        sn.convert_to_fluxes(phasemin=phasemin, phasemax=phasemax)
                         shifted_mag = np.asarray([phot["flux"] for phot in sn.shifted_data[filt]])
                         err = np.asarray([phot["fluxerr"] for phot in sn.shifted_data[filt]])
                         nondets = np.asarray([phot.get("nondetection", False) for phot in sn.shifted_data[filt]])
