@@ -145,10 +145,10 @@ class GP(Fitter):
             wls.reshape(-1, 1),
         )
 
-    def run_gp(self, filt, phasemin, phasemax, test_size, use_fluxes=False):
+    def run_gp(self, filt, phasemin, phasemax, test_size, log_transform=False, sn_set=None, use_fluxes=False):
 
-        phases, mags, errs, _ = self.process_dataset_for_gp(filt, phasemin, phasemax, use_fluxes=use_fluxes)
-        X_train, X_test, Y_train, Y_test, Z_train, Z_test = train_test_split(phases, mags, errs, test_size=test_size)
+        phases, mags, errs, _ = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform, sn_set=sn_set, use_fluxes=use_fluxes)
+        X_train, _, Y_train, _, Z_train, _ = train_test_split(phases, mags, errs, test_size=test_size)
 
         ### Get array of errors at each timestep
         min_phase, max_phase = sorted(X_train)[0], sorted(X_train)[-1]
@@ -173,11 +173,11 @@ class GP(Fitter):
 
         self.gaussian_process = gaussian_process
 
-        return gaussian_process, phases, mags, errs, err_grid
+        return gaussian_process, phases, mags, errs
 
     def predict_gp(self, filt, phasemin, phasemax, test_size, plot=False, use_fluxes=False):
 
-        gaussian_process, phases, mags, errs, err_grid = self.run_gp(filt, phasemin, phasemax, test_size, use_fluxes=use_fluxes)
+        gaussian_process, phases, mags, errs = self.run_gp(filt, phasemin, phasemax, test_size, use_fluxes=use_fluxes)
 
         mean_prediction, std_prediction = gaussian_process.predict(sorted(phases), return_std=True)
 
