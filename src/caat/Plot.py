@@ -154,7 +154,6 @@ class Plot:
         plt.ylabel("Shifted Magnitude")
         plt.title(sn.name + "-Shifted Data")
         plt.legend()
-        plt.gca().invert_yaxis()
         plt.show()
 
     def plot_all_lcs(self, sn_class, filts=["all"], log_transform=False, plot_fluxes=False):

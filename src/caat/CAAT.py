@@ -87,7 +87,7 @@ class CAAT:
 
         # Create A List Of Folders To Parse
         if type_list is None:
-            type_list = ["SESNe", "SLSN-I", "SLSN-II", "SNII", "SNIIn", "FBOT"]
+            type_list = ["SESNe", "SLSN-I", "SLSN-II", "SNII", "SNIIn", "FBOT", "Other"]
 
         sndb_name = []
         sndb_type = []
