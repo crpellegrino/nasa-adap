@@ -354,17 +354,27 @@ class SN:
                             if not phot.get("nondetection", False) and phot["mjd"] > phasemin and phot["mjd"] < phasemax
                         ]
                     )
+
+                    detection_mags = np.asarray(
+                        [
+                            phot["mag"]
+                            for phot in self.shifted_data[filt]
+                            if not phot.get("nondetection", False) and phot["mjd"] > phasemin and phot["mjd"] < phasemax
+                        ]
+                    )
                     if len(detection_mjds) > 0:
                         min_detection = min(detection_mjds)
                         max_detection = max(detection_mjds)
+                        min_detection_mag = detection_mags[np.where((detection_mjds==min_detection))[0]][0]
+                        max_detection_mag = detection_mags[np.where((detection_mjds==max_detection))[0]][0]
 
-                        nondetection_mjds = np.asarray([phot["mjd"] for phot in self.shifted_data[filt] if phot.get("nondetection", False)])
-                        if len(nondetection_mjds) == 0:
-                            min_nondetection = 9e9
-                            max_nondetection = 9e9
-                        else:
-                            min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
-                            max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
+                        # nondetection_mjds = np.asarray([phot["mjd"] for phot in self.shifted_data[filt] if phot.get("nondetection", False)])
+                        # if len(nondetection_mjds) == 0:
+                        #     min_nondetection = 9e9
+                        #     max_nondetection = 9e9
+                        # else:
+                        #     min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
+                        #     max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
 
                         new_phot = []
 
@@ -372,7 +382,18 @@ class SN:
                             if phot.get("nondetection", False):
                                 ### Check if this nondetection is close to either
                                 ### the first or last nondetection in this filter
-                                if abs(phot["mjd"] - min_nondetection) < 0.5 or abs(phot["mjd"] - max_nondetection) < 0.5:
+                                # #if (phot["mjd"] - min_nondetection < 0.0 and phot["mjd"] - min_nondetection > 0.5) or (phot["mjd"] - max_nondetection < 0.5 and phot["mjd"] - max_nondetection > 0.0):
+                                # if (phot["mjd"] - min_nondetection < 0.0) or (phot["mjd"] - max_nondetection > 0.0):
+                                #     unshifted_mag = phot["mag"] + self.info["peak_mag"]
+                                #     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
+                                #         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
+                                #     )  # * 1e15
+                                #     phot["flux"] = shifted_flux
+                                #     phot["fluxerr"] = phot["err"]
+                                #     new_phot.append(phot)
+
+                                if (phot["mjd"] - min_detection < 0.0 and phot["mag"] > min_detection_mag) or (phot["mjd"] - max_detection > 0.0 and phot["mag"] > max_detection_mag):
+                                    #print(phot["mjd"], min_detection, phot['mag'], min_detection_mag, max_detection, max_detection_mag)
                                     unshifted_mag = phot["mag"] + self.info["peak_mag"]
                                     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
                                         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
@@ -380,14 +401,15 @@ class SN:
                                     phot["flux"] = shifted_flux
                                     phot["fluxerr"] = phot["err"]
                                     new_phot.append(phot)
-                                else:
-                                    unshifted_mag = phot["mag"] + self.info["peak_mag"]
-                                    shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
-                                        self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
-                                    )  # * 1e15
-                                    phot["flux"] = shifted_flux
-                                    phot["fluxerr"] = phot["err"] * 10
-                                    new_phot.append(phot)
+                                
+                                # else:
+                                #     unshifted_mag = phot["mag"] + self.info["peak_mag"]
+                                #     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
+                                #         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
+                                #     )  # * 1e15
+                                #     phot["flux"] = shifted_flux
+                                #     phot["fluxerr"] = phot["err"] * 10
+                                #     new_phot.append(phot)
                             else:
                                 unshifted_mag = phot["mag"] + self.info["peak_mag"]
                                 shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
