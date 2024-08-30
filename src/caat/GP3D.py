@@ -15,6 +15,7 @@ from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
+from scipy.stats import iqr
 
 # from .CAAT import CAAT
 from .GP import GP#, Fitter
@@ -43,7 +44,7 @@ class GP3D(GP):
         for i, row in enumerate(grid):
             notnan_inds = np.where((~np.isnan(row)))[0]
             if len(notnan_inds) > 4:
-                interp = interp1d(interp_array[notnan_inds], row[notnan_inds], "cubic")
+                interp = interp1d(interp_array[notnan_inds], row[notnan_inds], "linear")
 
                 interp_row = interp(interp_array[min(notnan_inds) : max(notnan_inds)])
                 savgol_l = savgol_filter(interp_row, filter_window, 3, mode="mirror")
@@ -621,6 +622,8 @@ class GP3D(GP):
                     if plot:
                         fig, ax = Plot().create_empty_subplot()
 
+                    filts_fitted = []
+
                     for filt in filtlist:
 
                         if log_transform is not False:
@@ -629,11 +632,13 @@ class GP3D(GP):
                             test_times_linear = np.arange(phasemin, phasemax, 1.0 / 24)
                             test_times = np.log(test_times_linear + log_transform)
                             test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
+                            filts_fitted.append(filt)
                         else:
                             if len(wl_residuals[wl_residuals == self.wle[filt]] * (1 + sn.info.get("z", 0))) == 0:
                                 continue
                             test_times = np.arange(phasemin, phasemax, 1.0 / 24)
                             test_waves = np.ones(len(test_times)) * self.wle[filt] * (1 + sn.info.get("z", 0))
+                            filts_fitted.append(filt)
 
                         ### Trying to convert back to normalized magnitudes here
                         if log_transform is not None:
@@ -710,7 +715,11 @@ class GP3D(GP):
                         phase_inds_fitted = np.unique(np.where((phase_grid >= min(phases_to_predict)) & (phase_grid <= max(phases_to_predict)))[0])
 
                         x, y = np.meshgrid(phase_grid[phase_inds_fitted], wl_grid[wl_inds_fitted])
-                        test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
+                        try:
+                            test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
+                        except:
+                            print('WARNING:   BROKEN FIT FOR ', sn.name)
+                            continue
                         test_prediction = np.asarray(test_prediction)
 
                         template_mags = []
@@ -726,6 +735,11 @@ class GP3D(GP):
                         ### Put the fitted wavelengths back in the right spot on the grid
                         ### and append to the gaussian processes array
                         test_prediction_reshaped = test_prediction.reshape((len(x), -1)) + template_mags
+
+                        for i, col in enumerate(test_prediction_reshaped.T):
+                            window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5) # Window size of approximately half a filter length scale
+                            test_prediction_reshaped[:,i] = savgol_filter(col, window_size, 3)
+
                         gp_grid = np.empty((len(wl_grid), len(phase_grid)))
                         gp_grid[:] = np.nan
                         for i, col in enumerate(test_prediction_reshaped[:,]):
@@ -871,10 +885,21 @@ class GP3D(GP):
             else:
                 X, Y = np.meshgrid(phase_grid, wl_grid)
 
+            # for i, col in enumerate(median_gp.T):
+            #     median_gp[:,i] = savgol_filter(col, 51, 3)
+            median_gp = self.interpolate_grid(median_gp.T, wl_grid, filter_window=31)
+            median_gp = median_gp.T
+
+
+            iqr_grid = iqr(np.dstack(gaussian_processes), axis=-1, nan_policy='omit')
+            # for i, col in enumerate(iqr_grid.T):
+            #     iqr_grid[:,i] = savgol_filter(col, 51, 3)
+            iqr_grid = self.interpolate_grid(iqr_grid.T, wl_grid, filter_window=31)
+            iqr_grid = iqr_grid.T
+            
             Z = median_gp
 
-            Plot().plot_construct_grid(gp_class=self, X=X, Y=Y, Z=Z, grid_type="final", use_fluxes=use_fluxes)
-
+            Plot().plot_construct_grid(gp_class=self, X=X, Y=Y, Z=Z, Z_lower=Z-iqr_grid, Z_upper=Z+iqr_grid, grid_type="final", use_fluxes=use_fluxes)
         # elif subtract_polynomial:      
         #     gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
         #                                                           phasemax, plot=plot, 

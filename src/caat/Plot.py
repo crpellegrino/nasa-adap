@@ -234,6 +234,8 @@ class Plot:
         X,
         Y,
         Z,
+        Z_lower=None,
+        Z_upper=None,
         grid_type=None,
         phase_grid=None,
         mag_grid=None,
@@ -252,6 +254,11 @@ class Plot:
         ax = fig.add_subplot(111, projection="3d")
 
         ax.plot_surface(X, Y, Z)
+
+        if Z_lower is not None:
+            ax.plot_surface(X, Y, Z_lower, color='gray', alpha=0.6)
+        if Z_upper is not None:
+            ax.plot_surface(X, Y, Z_upper, color='gray', alpha=0.6)
         ax.set_xlabel("Phase Grid")
         ax.set_ylabel("Wavelengths [nm]")
 
