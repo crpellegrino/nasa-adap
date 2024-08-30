@@ -114,7 +114,10 @@ class GP(Fitter):
                 if not sn.info:
                     shifted_mjd = []
                 else:
-                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
+                    if sn.info.get('searched', False) and not sn.info.get("peak_mag", 0) > 0:
+                        shifted_mjd = []
+                    else:
+                        shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
 
             else:
                 ### We already successfully fit for peak, so get the shifted photometry for this filter
