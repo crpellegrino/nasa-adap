@@ -8,3 +8,4 @@ from .Kernels import RBFKernel, WhiteKernel, MaternKernel
 from .Plot import Plot
 from .SN import SN
 from .SNCollection import SNCollection, SNType
+from .Diagnostics import Diagnostic
