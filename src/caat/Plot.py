@@ -256,9 +256,9 @@ class Plot:
         ax.plot_surface(X, Y, Z)
 
         if Z_lower is not None:
-            ax.plot_surface(X, Y, Z_lower, color='gray', alpha=0.6)
+            ax.plot_surface(X, Y, Z_lower, color='blue', alpha=0.2)
         if Z_upper is not None:
-            ax.plot_surface(X, Y, Z_upper, color='gray', alpha=0.6)
+            ax.plot_surface(X, Y, Z_upper, color='blue', alpha=0.2)
         ax.set_xlabel("Phase Grid")
         ax.set_ylabel("Wavelengths [nm]")
 

@@ -736,9 +736,10 @@ class GP3D(GP):
                         ### and append to the gaussian processes array
                         test_prediction_reshaped = test_prediction.reshape((len(x), -1)) + template_mags
 
+                        test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
                         for i, col in enumerate(test_prediction_reshaped.T):
                             window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5) # Window size of approximately half a filter length scale
-                            test_prediction_reshaped[:,i] = savgol_filter(col, window_size, 3)
+                            test_prediction_smoothed[:,i] = np.convolve(col, np.ones(window_size)/window_size, mode='same') # Boxcar smoothing
 
                         gp_grid = np.empty((len(wl_grid), len(phase_grid)))
                         gp_grid[:] = np.nan
