@@ -752,11 +752,20 @@ class GP3D(GP):
                         if plot:
                             Plot().plot_run_gp_surface(
                                 gp_class=self,
-                                x=x,
-                                y=y,
-                                test_prediction_reshaped=test_prediction_reshaped,
+                                x=np.exp(x)-log_transform,
+                                y=10**(y),
+                                test_prediction_reshaped=test_prediction_smoothed,#test_prediction_reshaped,
                                 use_fluxes=use_fluxes,
                             )
+                            # from caat.Diagnostics import Diagnostic
+                            # d = Diagnostic()
+                            # d.check_gradient_between_filters(
+                            #     [self.wle[f] for f in filtlist],
+                            #     np.exp(phase_grid[phase_inds_fitted]) - log_transform,
+                            #     10**(wl_grid[wl_inds_fitted]),
+                            #     test_prediction_smoothed,
+                            #     [-15.0, 0.0, 50.0]
+                            # )
                         if not plot:
                             use_for_template = "y"
                         elif not interactive:

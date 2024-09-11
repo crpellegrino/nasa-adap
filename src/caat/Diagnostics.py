@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 class Diagnostic:
@@ -64,7 +65,7 @@ class Diagnostic:
 
     def check_gradient_between_filters(
             self,
-            filts,
+            filt_wls,
             phase_grid,
             wl_grid,
             gp_grid,
@@ -75,3 +76,23 @@ class Diagnostic:
         at representative time slices is smooth, i.e. free
         from second-order (or higher) bumps and wiggles
         """
+
+        for phase in phases_to_check:
+            phase_ind = np.argmin(abs(phase_grid - phase))
+
+            sed = gp_grid[:, phase_ind]
+            plt.plot(wl_grid, sed)
+            plt.title(phase_grid[phase_ind])
+            plt.show()
+
+            for i, wl in enumerate(filt_wls):
+                if i == len(filt_wls)-1:
+                    # Reached the last filter
+                    break
+                blue_wl_ind = np.argmin(abs(wl_grid - wl))
+                red_wl_ind = np.argmin(abs(wl_grid - filt_wls[i+1]))
+
+                filter_gradient = gp_grid[blue_wl_ind:red_wl_ind, phase_ind]
+
+                ### Check smoothness of filter gradient
+
