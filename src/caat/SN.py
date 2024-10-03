@@ -626,6 +626,7 @@ class SN:
         plot=False,
         offset=0,
         shift_fluxes=False,
+        try_other_filts=True
     ):
 
         if not self.data:
@@ -638,7 +639,7 @@ class SN:
         if not self.info.get("peak_mjd") and not self.info.get("peak_mag"):
             self.fit_for_max(filt, shift_array=shift_array, plot=plot, offset=offset)
 
-            if not self.info.get("peak_mjd", 0) > 0:
+            if not self.info.get("peak_mjd", 0) > 0 and try_other_filts:
                 for newfilt in ["V", "g", "c", "B", "r", "o", "U", "i", "UVW1"]:
                     if newfilt in self.data.keys() and newfilt != filt:
                         self.fit_for_max(newfilt, shift_array=shift_array, plot=plot, offset=offset)

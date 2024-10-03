@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from caat.utils import query_svo_service, bin_spec
 
 
 class Diagnostic:
@@ -69,6 +70,7 @@ class Diagnostic:
             phase_grid,
             wl_grid,
             gp_grid,
+            std_grid,
             phases_to_check
     ):
         """
@@ -77,12 +79,17 @@ class Diagnostic:
         from second-order (or higher) bumps and wiggles
         """
 
+        if len(filt_wls) < 2:
+            return 
+
         for phase in phases_to_check:
             phase_ind = np.argmin(abs(phase_grid - phase))
 
             sed = gp_grid[:, phase_ind]
-            plt.plot(wl_grid, sed)
-            plt.title(phase_grid[phase_ind])
+            std = std_grid[:, phase_ind]
+            plt.plot(wl_grid, sed, color='k')
+            plt.fill_between(wl_grid, sed - std, sed + std)
+            plt.title('SED at {}'.format(round(phase_grid[phase_ind], 0)))
             plt.show()
 
             for i, wl in enumerate(filt_wls):
@@ -93,6 +100,87 @@ class Diagnostic:
                 red_wl_ind = np.argmin(abs(wl_grid - filt_wls[i+1]))
 
                 filter_gradient = gp_grid[blue_wl_ind:red_wl_ind, phase_ind]
+                filter_gradient_std = std_grid[blue_wl_ind:red_wl_ind, phase_ind]
 
                 ### Check smoothness of filter gradient
 
+                # Fit the gradient as a 1d function
+                fit = np.poly1d(np.polyfit(wl_grid[blue_wl_ind:red_wl_ind], filter_gradient, 1))
+                bad_fit_inds = np.where((abs(filter_gradient - fit(wl_grid[blue_wl_ind:red_wl_ind])) > 3 * abs(filter_gradient_std)))[0]
+                if len(bad_fit_inds) > 0:
+                    print('WARNING: gradient between filters not smooth at wavelengths ', wl_grid[blue_wl_ind:red_wl_ind][bad_fit_inds])
+
+                    plt.plot(
+                        wl_grid[blue_wl_ind:red_wl_ind], 
+                        fit(wl_grid[blue_wl_ind:red_wl_ind]),
+                        color='gray',
+                        linestyle='--'
+                    )
+                    plt.plot(
+                        wl_grid[blue_wl_ind:red_wl_ind],
+                        filter_gradient,
+                        color='k'
+                    )
+                    plt.fill_between(
+                        wl_grid[blue_wl_ind:red_wl_ind],
+                        filter_gradient - filter_gradient_std,
+                        filter_gradient + filter_gradient_std
+                    )
+                    plt.show()
+
+    def check_uvm2_flux(
+            self,
+            phase_grid,
+            wl_grid,
+            gp_grid,
+            std_grid,
+            phases_to_check
+    ):
+        """
+        """
+
+        for phase in phases_to_check:
+            phase_ind = np.argmin(abs(phase_grid - phase))
+
+            sed = gp_grid[:, phase_ind]
+            std = std_grid[:, phase_ind]
+
+            trans_wl, trans_eff = query_svo_service('Swift', 'UVM2')
+            trans_eff /= max(trans_eff)
+
+            ### Bin the transmission curve to common resolution as SED
+            binned_trans_wl, binned_trans_eff = bin_spec(trans_wl, trans_eff, wl_grid)
+            
+            ### Find indices of the transmission curve where 
+            ### the transmission drops below 20%
+            tail_inds = np.where((binned_trans_eff < 0.2))[0]
+
+            ### Get indices of SED that fall within the binned transmission curve
+            sed_inds = np.where((wl_grid >= binned_trans_wl[0]) & (wl_grid <= binned_trans_wl[-1]))[0]
+
+            ### Calculate flux in the transmission curve
+            ### Here we're shifting the flux upward by the minimum value
+            ### in the entire filter to avoid issues with summing positive
+            ### and negative normalized fluxes
+            shifted_full_sed_flux = sed[sed_inds] - np.nanmin(sed[sed_inds])
+            flux = np.nansum(shifted_full_sed_flux * 
+                             binned_trans_eff[sed_inds]
+            )
+
+            ### Calculate flux in the tail
+            shifted_tail_sed_flux = sed[tail_inds] - np.nanmin(sed[sed_inds])
+            tail_flux = np.nansum(shifted_tail_sed_flux * 
+                                  binned_trans_eff[tail_inds]
+            )
+
+            plt.plot(binned_trans_wl[sed_inds], shifted_full_sed_flux, color='black')
+            plt.scatter(binned_trans_wl[tail_inds], shifted_tail_sed_flux, marker='o', color='blue')
+            plt.plot(binned_trans_wl, binned_trans_eff, color='red')
+            plt.show()
+
+            ### Compare the two values--is tail flux > 20% of the total?
+            ratio = tail_flux / flux
+            if ratio > 0.2:
+                print(f'WARNING: {ratio} percent of UVM2 flux falls in red tail')
+            else:
+                print(f'All good: Only {ratio} percent of UVM2 flux falls in red tail')

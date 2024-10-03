@@ -13,6 +13,7 @@ from scipy.signal import savgol_filter
 from scipy.interpolate import interp1d
 from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
+from astropy.convolution import convolve
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
 from scipy.stats import iqr
@@ -333,7 +334,7 @@ class GP3D(GP):
                 )
             else:
                 inds = np.where((abs(all_template_wls - wl_grid[j]) <= 100))[0]
-                anchor_phases = np.asarray([phasemin, phasemax])
+                anchor_phases = np.asarray([phasemin, phasemin + 2.5, phasemax])
 
             if len(inds) > 0:
 
@@ -410,7 +411,7 @@ class GP3D(GP):
                     shifted_mjd, shifted_mag, err, nondets = [], [], [], []
                 else:
                     sn.correct_for_galactic_extinction()
-                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
+                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes, try_other_filts=False)
             else:
                 if filt in sn.shifted_data.keys():
                     if use_fluxes:
@@ -429,7 +430,11 @@ class GP3D(GP):
                 else:
                     shifted_mjd = []
 
-            if len(shifted_mjd) > 0:
+            # There's a bug that I have to track down where sometimes filters without data
+            # have a NaN as their redshift until data is read in, so the second clause
+            # of this if statement will skip over those filters
+            # (I don't know why this isn't caught above)
+            if len(shifted_mjd) > 0 and not np.isnan(sn.info.get("z", 0)):
 
                 if log_transform is not False:
                     shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
@@ -739,7 +744,14 @@ class GP3D(GP):
                         test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
                         for i, col in enumerate(test_prediction_reshaped.T):
                             window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5) # Window size of approximately half a filter length scale
-                            test_prediction_smoothed[:,i] = np.convolve(col, np.ones(window_size)/window_size, mode='same') # Boxcar smoothing
+                            # Use astropy convolve function to handle NaNs
+                            test_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend') # Boxcar smoothing
+
+                        std_prediction_reshaped = std_prediction.reshape((len(x), -1)) + template_mags
+                        std_prediction_smoothed = np.empty(std_prediction_reshaped.shape)
+                        for i, col in enumerate(std_prediction_reshaped.T):
+                            window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5)
+                            std_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend')
 
                         gp_grid = np.empty((len(wl_grid), len(phase_grid)))
                         gp_grid[:] = np.nan
@@ -757,15 +769,24 @@ class GP3D(GP):
                                 test_prediction_reshaped=test_prediction_smoothed,#test_prediction_reshaped,
                                 use_fluxes=use_fluxes,
                             )
-                            # from caat.Diagnostics import Diagnostic
-                            # d = Diagnostic()
-                            # d.check_gradient_between_filters(
-                            #     [self.wle[f] for f in filtlist],
-                            #     np.exp(phase_grid[phase_inds_fitted]) - log_transform,
-                            #     10**(wl_grid[wl_inds_fitted]),
-                            #     test_prediction_smoothed,
-                            #     [-15.0, 0.0, 50.0]
-                            # )
+                            from caat.Diagnostics import Diagnostic
+                            d = Diagnostic()
+                            d.check_gradient_between_filters(
+                                [self.wle[f] for f in filts_fitted],
+                                np.exp(phase_grid[phase_inds_fitted]) - log_transform,
+                                10**(wl_grid[wl_inds_fitted]),
+                                test_prediction_smoothed,
+                                std_prediction_smoothed,
+                                [-15.0, 0.0, 50.0]
+                            )
+                            if 'UVM2' in filts_fitted:
+                                d.check_uvm2_flux(
+                                    np.exp(phase_grid[phase_inds_fitted]) - log_transform,
+                                    10**(wl_grid[wl_inds_fitted]),
+                                    test_prediction_smoothed,
+                                    std_prediction_smoothed,
+                                    [-15.0, 0.0, 50.0]
+                                )
                         if not plot:
                             use_for_template = "y"
                         elif not interactive:
