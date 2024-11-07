@@ -15,8 +15,11 @@ from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
-
+import logging
 from caat.utils import colors
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 warnings.filterwarnings("ignore")
 
@@ -160,7 +163,7 @@ class Plot:
         """plot all light curves of given subtype/collection
         can plot single, multiple or all bands"""
         sne = sn_class.sne
-        print(f"Plotting all {len(sne)} lightcurves in the collection")
+        logger.info(f"Plotting all {len(sne)} lightcurves in the collection")
 
         fig, ax = plt.subplots()
         if filts[0] is not "all":

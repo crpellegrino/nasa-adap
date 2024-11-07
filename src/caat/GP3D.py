@@ -18,13 +18,14 @@ import astropy.units as u
 from dustmaps.sfd import SFDQuery
 from scipy.stats import iqr
 
-# from .CAAT import CAAT
-from .GP import GP#, Fitter
-# from .Kernels import RBFKernel, WhiteKernel, MaternKernel
+from .GP import GP
 from .Plot import Plot
-# from .SN import SN
-# from .SNCollection import SNCollection, SNType
+from .Diagnostics import Diagnostic
 from caat.utils import colors
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 warnings.filterwarnings("ignore")
 
@@ -474,7 +475,7 @@ class GP3D(GP):
                         phase_ind = np.argmin(abs(phase_grid - phase))
 
                     if np.isnan(mag_grid[phase_ind, wl_ind]):
-                        print(f"NaN Found: phase {np.exp(phase)}, wl {10**wl_grid[wl_ind]}")
+                        logger.warning(f"NaN Found: phase {np.exp(phase)}, wl {10**wl_grid[wl_ind]}")
                         continue
 
                     if log_transform is not None:
@@ -717,6 +718,51 @@ class GP3D(GP):
                                 phasemax=phasemax,
                             )
 
+                        if run_diagnostics:
+                            d = Diagnostic()
+                            d.identify_outlier_points(
+                                filt,
+                                test_times,
+                                test_prediction + template_mags,
+                                std_prediction,
+                                np.exp([
+                                    p["phase_residual"]
+                                    for p in residuals[filt]
+                                    if p["phase_residual"] > np.log(phasemin + log_transform)
+                                    and p["phase_residual"] < np.log(phasemax + log_transform)
+                                    and not p["nondetection"]
+                                ])-log_transform,
+                                [
+                                    p["mag"]
+                                    for p in residuals[filt]
+                                    if p["phase_residual"] > np.log(phasemin + log_transform)
+                                    and p["phase_residual"] < np.log(phasemax + log_transform)
+                                    and not p["nondetection"]
+                                ],
+                                [
+                                    p["err_residual"]
+                                    for p in residuals[filt]
+                                    if p["phase_residual"] > np.log(phasemin + log_transform)
+                                    and p["phase_residual"] < np.log(phasemax + log_transform)
+                                    and not p["nondetection"]
+                                ],
+                                log_transform=log_transform
+                            )
+
+                            d.check_late_time_slope(
+                                filt,
+                                test_times,
+                                test_prediction + template_mags,
+                                np.exp([
+                                    p["phase_residual"]
+                                    for p in residuals[filt]
+                                    if p["phase_residual"] > np.log(phasemin + log_transform)
+                                    and p["phase_residual"] < np.log(phasemax + log_transform)
+                                    and not p["nondetection"]
+                                ])-log_transform,
+                                use_fluxes=use_fluxes                                
+                            )
+
                         if (subtract_median or subtract_polynomial) and interactive:
                             use_for_template = input("Use this fit to construct a template? y/n")
 
@@ -743,7 +789,7 @@ class GP3D(GP):
                         try:
                             test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
                         except:
-                            print('WARNING:   BROKEN FIT FOR ', sn.name)
+                            logger.warning(f'WARNING:   BROKEN FIT FOR {sn.name}')
                             continue
                         test_prediction = np.asarray(test_prediction)
 
@@ -790,7 +836,6 @@ class GP3D(GP):
                                 use_fluxes=use_fluxes,
                             )
                             if run_diagnostics:
-                                from caat.Diagnostics import Diagnostic
                                 d = Diagnostic()
                                 d.check_gradient_between_filters(
                                     [self.wle[f] for f in filts_fitted],
