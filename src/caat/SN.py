@@ -392,7 +392,8 @@ class SN:
                                 #     phot["fluxerr"] = phot["err"]
                                 #     new_phot.append(phot)
 
-                                if (phot["mjd"] - min_detection < 0.0 and phot["mag"] > min_detection_mag) or (phot["mjd"] - max_detection > 0.0 and phot["mag"] > max_detection_mag):
+                                if (
+                                    phot["mjd"] - min_detection < 0.0 and phot["mjd"] - min_detection >= -5.0 and phot["mag"] > min_detection_mag) or (phot["mjd"] - max_detection > 0.0 and phot["mjd"] - max_detection <= 5.0 and phot["mag"] > max_detection_mag):
                                     #print(phot["mjd"], min_detection, phot['mag'], min_detection_mag, max_detection, max_detection_mag)
                                     unshifted_mag = phot["mag"] + self.info["peak_mag"]
                                     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
