@@ -23,6 +23,10 @@ from .CAAT import CAAT
 from .Plot import Plot
 # from .SNCollection import SNCollection, SNType
 from caat.utils import ROOT_DIR, colors
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 warnings.filterwarnings("ignore")
 
@@ -163,7 +167,7 @@ class SN:
                 self.name + "_uvotB15.1.dat",
             )
         ):
-            print("No Swift file for ", self.name)
+            logger.info(f"No Swift file for {self.name}")
             return
 
         ### Magnitudes in the SOUSA output file are in Vega mags
@@ -227,7 +231,7 @@ class SN:
 
         ### Load data saved as a JSON file (ZTF, ATLAS, OpenSN, ASASSN)
         if not os.path.exists(os.path.join(self.base_path, self.classification, self.subtype, self.name)):
-            print("No additional data files for ", self.name)
+            logger.info(f"No additional data files for {self.name}")
             return
 
         dirfiles = os.listdir(os.path.join(self.base_path, self.classification, self.subtype, self.name))
@@ -235,7 +239,6 @@ class SN:
         for f in dirfiles:
             ### Trying to filter out info file and shifted data file, should do this better
             if ".json" in f and "_info.json" not in f and "_shifted_data.json" not in f:
-                # print('Working with ', f)
                 with open(
                     os.path.join(self.base_path, self.classification, self.subtype, self.name, f),
                     "r",
@@ -392,8 +395,8 @@ class SN:
                                 #     phot["fluxerr"] = phot["err"]
                                 #     new_phot.append(phot)
 
-                                if (phot["mjd"] - min_detection < 0.0 and phot["mag"] > min_detection_mag) or (phot["mjd"] - max_detection > 0.0 and phot["mag"] > max_detection_mag):
-                                    #print(phot["mjd"], min_detection, phot['mag'], min_detection_mag, max_detection, max_detection_mag)
+                                if (
+                                    phot["mjd"] - min_detection < 0.0 and phot["mjd"] - min_detection >= -5.0 and phot["mag"] > min_detection_mag) or (phot["mjd"] - max_detection > 0.0 and phot["mjd"] - max_detection <= 5.0 and phot["mag"] > max_detection_mag):
                                     unshifted_mag = phot["mag"] + self.info["peak_mag"]
                                     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
                                         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
@@ -433,7 +436,7 @@ class SN:
         sfd = SFDQuery()
 
         if not self.info.get("ra", "") or not self.info.get("dec", ""):
-            print("No coordinates for this object")
+            logger.warning(f"No coordinates for {self.name}")
             return
 
         coord = SkyCoord(ra=self.info["ra"] * u.deg, dec=self.info["dec"] * u.deg)
@@ -626,6 +629,7 @@ class SN:
         plot=False,
         offset=0,
         shift_fluxes=False,
+        try_other_filts=True
     ):
 
         if not self.data:
@@ -638,7 +642,7 @@ class SN:
         if not self.info.get("peak_mjd") and not self.info.get("peak_mag"):
             self.fit_for_max(filt, shift_array=shift_array, plot=plot, offset=offset)
 
-            if not self.info.get("peak_mjd", 0) > 0:
+            if not self.info.get("peak_mjd", 0) > 0 and try_other_filts:
                 for newfilt in ["V", "g", "c", "B", "r", "o", "U", "i", "UVW1"]:
                     if newfilt in self.data.keys() and newfilt != filt:
                         self.fit_for_max(newfilt, shift_array=shift_array, plot=plot, offset=offset)
@@ -647,7 +651,7 @@ class SN:
                             break
 
                 if newfilt == "UVW1" and not self.info.get("peak_mjd", 0) > 0:
-                    print("Reached last filter and could not fit for peak for ", self.name)
+                    logger.warning(f"Reached last filter and could not fit for peak for {self.name}")
                     self.info["searched"] = True
 
         if not self.info.get("peak_mag", 0) > 0:
@@ -700,7 +704,7 @@ class SN:
 
         if not filt:
             self.plot_data()
-            print("Data in filters {}\n".format(list(self.data.keys())))
+            logger.info("Data in filters {}\n".format(list(self.data.keys())))
 
             filt = input('Which filter would you like to use to fit for max? To skip, type "skip"\n')
             if filt == "skip":
@@ -719,7 +723,7 @@ class SN:
             self.write_info_to_caat_file(force=force)
 
         elif refit == "n" and not save_to_caat:
-            print('To save these parameters, rerun with "save_to_caat=True"')
+            logger.info('To save these parameters, rerun with "save_to_caat=True"')
 
         elif refit == "y":
             self.info = {}

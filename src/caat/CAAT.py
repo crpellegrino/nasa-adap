@@ -15,8 +15,11 @@ from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
-
+import logging
 from caat.utils import ROOT_DIR
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 warnings.filterwarnings("ignore")
 
@@ -45,7 +48,7 @@ class CAAT:
     @staticmethod
     def save_db_file(db_loc, sndb, force=False):
         if not force and os.path.exists(db_loc):
-            print("WARNING: CAAT file with this name already exists. To overwrite, use force=True")
+            logger.warning("WARNING: CAAT file with this name already exists. To overwrite, use force=True")
 
         else:
             sndb.to_csv(db_loc, index=False)

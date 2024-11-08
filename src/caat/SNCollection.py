@@ -15,13 +15,16 @@ from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
-
+import logging
 from .CAAT import CAAT
 # from .GP import GP, Fitter
 # from .GP3D import GP3D
 # from .Kernels import RBFKernel, WhiteKernel, MaternKernel
 from .Plot import Plot
 from .SN import SN
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 warnings.filterwarnings("ignore")
 
@@ -53,16 +56,16 @@ class SNCollection:
             else:
                 if type(sntype) is not None:
                     # convert this to a logger statement
-                    print(f"Loading SN Type: {sntype}, Subtype: {snsubtype}")
+                    logger.info(f"Loading SN Type: {sntype}, Subtype: {snsubtype}")
                     caat = CAAT()
                     type_list = caat.get_sne_by_type(sntype, snsubtype)
-                    print(type_list)
+                    logger.info(type_list)
                     self.sne = [SN(name) for name in type_list]
                     self.type = sntype
                     self.subtype = snsubtype
 
     def __repr__(self):
-        print("Collection of SN Objects")
+        logger.info("Collection of SN Objects")
         return self.sne
 
     # @property
