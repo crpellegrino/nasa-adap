@@ -9,3 +9,4 @@ from .Plot import Plot
 from .SN import SN
 from .SNCollection import SNCollection, SNType
 from .Diagnostics import Diagnostic
+from .DataCube import DataCube
