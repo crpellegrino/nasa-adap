@@ -37,6 +37,8 @@ def query_svo_service(instrument, filter):
     elif instrument.lower() == 'atlas':
         filter_dict = {'o': 'orange', 'c': 'cyan'}
         url = base_url + f'ID=Misc/ATLAS.{filter_dict[filter]}'
+    elif instrument.lower() == 'ztf':
+        url = base_url + f'ID=Palomar/ZTF.{filter}'
     else:
         url = base_url + f'ID={instrument}/{instrument}.{filter}'
     s = BytesIO(urlopen(url).read())
