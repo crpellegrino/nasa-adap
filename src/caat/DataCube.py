@@ -83,42 +83,55 @@ class DataCube:
                 bluest_filt = np.unique(self.cube[4][current_lc_inds][np.argmin(self.cube[1][current_lc_inds])])[0]
                 reddest_filt = np.unique(self.cube[4][current_lc_inds][np.argmax(self.cube[1][current_lc_inds])])[0]
 
+                for i, filt in enumerate(self.cube[4][current_lc_inds]):
+                    trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt], filt)
+                    trans_eff /= max(trans_eff)
+                    # Get min and max wavelength for this filter, let's define it as where eff < 10%
+                    center_of_filt = trans_wl[np.argmax(trans_eff)]
+                    tail_wls = trans_wl[np.where((trans_eff < 0.025))[0]]
+                    min_trans_wl = np.max(tail_wls[np.where((tail_wls < center_of_filt))[0]])
+                    max_trans_wl = np.min(tail_wls[np.where((tail_wls > center_of_filt))[0]])
+                    trans_fns[filt] = {
+                        'wl': trans_wl, 
+                        'eff': trans_eff,
+                        'min_wl': min_trans_wl,
+                        'max_wl': max_trans_wl
+                    }
+
                 current_lc = self.cube[2][current_lc_inds]
                 current_lc = np.concatenate(([0.0], current_lc, [0.0]))
                 current_lc_err = np.concatenate(([0.0], self.cube[3][current_lc_inds], [0.0]))
                 current_lc_wls = np.concatenate((
-                    [self.sn.wle[bluest_filt] * (1 + self.sn.info.get('z', 0.0)) - 500.0], 
+                    [trans_fns[bluest_filt]['min_wl'] * (1 + self.sn.info.get('z', 0.0))],
                     self.cube[1][current_lc_inds],
-                    [self.sn.wle[reddest_filt] * (1 + self.sn.info.get('z', 0.0)) + 500.0]   
+                    [trans_fns[reddest_filt]['max_wl'] * (1 + self.sn.info.get('z', 0.0))]
                 ))
                 wl_grid = np.linspace(current_lc_wls[0], current_lc_wls[-1], 50)
-                
-                for i, filt in enumerate(self.cube[4][current_lc_inds]):
-                    trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt], filt)
-                    trans_eff /= max(trans_eff)
-                    trans_fns[filt] = {'wl': trans_wl, 'eff': trans_eff}
 
-                    error = 100.0
-                    n = 0
+                errors = np.ones(len(current_lc_inds)) * 100.0
+                n = 0
+                central_wls = np.copy(current_lc_wls[1:-1])
 
-                    #TODO: All filters at same time
-                    central_wl = current_lc_wls[i+1]
+                while any(errors > 2.5) and n < 100:
 
-                    while error > 2.5 and n < 100:
+                    ### Construct SED by interpolating over this LC
+                    interp = interp1d(current_lc_wls, current_lc, kind='linear')
 
-                        ### Construct SED by interpolating over this LC
-                        interp = interp1d(current_lc_wls, current_lc, kind='linear')
+                    for i, filt in enumerate(self.cube[4][current_lc_inds]):
 
                         ### Bin the transmission curve and SED to common resolution
-                        binned_trans_wl, binned_trans_eff = bin_spec(trans_wl, trans_eff, wl_grid)
+                        binned_trans_wl, binned_trans_eff = bin_spec(trans_fns[filt]['wl'], trans_fns[filt]['eff'], wl_grid)
                         binned_sed = interp(wl_grid)
+
+                        if n == 0:
+                            plt.plot(binned_trans_wl, binned_trans_eff*max(interp(wl_grid)))
 
                         ### Get overlap between the filter and the SED
                         sed_inds = np.where((wl_grid >= min(binned_trans_wl)) & (wl_grid <= max(binned_trans_wl)))[0]
                         interp_filt = interp1d(binned_trans_wl, binned_trans_eff)
                         interp_trans_wl = np.linspace(wl_grid[sed_inds[0]], wl_grid[sed_inds[-1]], len(sed_inds))
                         interp_trans_eff = interp_filt(interp_trans_wl)
-                            
+                        
                         flux = np.nansum(binned_sed[sed_inds] *
                                         interp_trans_eff
                         ) / len(interp_trans_eff)
@@ -131,17 +144,32 @@ class DataCube:
 
                         error = max(flux/real_flux, real_flux/flux)
                         print(f'Filter: {filt}, convolved flux: {flux}, measured flux: {current_lc[real_flux_inds]}, error: {error}')
+                        print(f'Filter: {filt}, warped wavelength: {current_lc_wls[i+1]}, real wavelength: {central_wls[i]}')
+                        errors[i] = error
 
-                        if error > 2.5:
-                            current_lc_wls[i+1] = central_wl + np.random.randint(-400, 400)
-                            n += 1
-                            if n == 100:
-                                print('Couldnt iterate to match flux!')
-                                plt.plot(binned_trans_wl, binned_trans_eff*max(interp(wl_grid)))
-                
-                        else:
-                            plt.plot(binned_trans_wl, binned_trans_eff*max(interp(wl_grid)))
+                    if any(errors > 2.5):
+                        ### Shift central wavelengths by amount proportional to the error in that bandpass
 
+                        max_error = max(errors)
+                        shift_prop = errors / max_error
+
+                        for i in range(len(current_lc_wls)-2):
+                            # Get min and max wavelengths for this filter
+                            min_wl = trans_fns[self.cube[4][current_lc_inds][i]]['min_wl']
+                            max_wl = trans_fns[self.cube[4][current_lc_inds][i]]['max_wl']
+                            # current_lc_wls[i+1] = central_wls[i] + np.random.randint(
+                            #     -400*shift_prop[i], 
+                            #     400*shift_prop[i]
+                            # )
+                            current_lc_wls[i+1] = central_wls[i] + np.random.randint(
+                                -0.9*(central_wls[i] - min_wl) * shift_prop[i], 
+                                0.9*(max_wl - central_wls[i]) * shift_prop[i]
+                            )
+                        
+                        n += 1
+                        if n == 100:
+                            print('Couldnt iterate to match flux!')
+            
                 plt.errorbar(current_lc_wls, current_lc, yerr=current_lc_err, fmt='o')
                 plt.plot(wl_grid, interp1d(current_lc_wls, current_lc, kind='linear')(wl_grid))
                 plt.show()
