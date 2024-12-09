@@ -11,18 +11,23 @@ logging.basicConfig(level=logging.INFO)
 
 class DataCube:
 
-    def __init__(self, name: str = None, data: dict = None):
+    def __init__(self, name: str = None, data: dict = None, shift: bool = False):
 
         self.sn = SN(name=name, data=data)
         self.sn.load_json_data()
         self.sn.load_swift_data()
-        #for filt in self.sn.data.keys():
-        #    self.sn.shift_to_max(filt)
+        if shift:
+            for filt in self.sn.data.keys():
+                self.sn.shift_to_max(filt)
         self.sn.convert_to_fluxes()
+        self.shift = shift
 
     def construct_cube(self):
 
-        data = self.sn.data #self.sn.shifted_data
+        if self.shift:
+            data = self.sn.shifted_data
+        else:
+            data = self.sn.data
 
         self.cube = np.asarray(
             [
@@ -44,9 +49,32 @@ class DataCube:
             ], dtype=object
         )
 
+    def deconstruct_cube(self):
+        """
+        Takes as input a data cube and turns it into a dictionary
+        of photometry to be used in GP fitting
+        Assumes a data cube of size (n, 5)
+        """
+        data = {}
+        for i in range(len(self.cube[:])):
+            data.setdefault(self.cube[4][i], []).append(
+                {
+                    'mjd': self.cube[0][i], 
+                    'wle': self.cube[1][i], 
+                    'flux': self.cube[2][i], 
+                    'fluxerr': self.cube[3][i]
+                }
+            )
+        
+        if self.shift:
+            self.sn.shifted_data = data
+        else:
+            self.sn.data = data
+
     def plot_cube(self):
 
-        self.construct_cube()
+        if not hasattr(self, 'cube'):
+            self.construct_cube()
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         ax.errorbar(self.cube[0], self.cube[1], self.cube[2], zerr=self.cube[3], fmt='o')
@@ -57,7 +85,7 @@ class DataCube:
         plt.tight_layout()
         plt.show()
 
-    def measure_flux_in_filter(self):
+    def measure_flux_in_filter(self, plot: bool = False):
 
         filt_tel_conversion = {'UVW2': 'Swift',
                                'UVM2': 'Swift',
@@ -74,29 +102,28 @@ class DataCube:
 
         self.construct_cube()
 
+        trans_fns = {}
+        for filt in np.unique(self.cube[4]):
+            trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt], filt)
+            trans_eff /= max(trans_eff)
+            # Get min and max wavelength for this filter, let's define it as where eff < 10%
+            center_of_filt = trans_wl[np.argmax(trans_eff)]
+            tail_wls = trans_wl[np.where((trans_eff < 0.025))[0]]
+            min_trans_wl = np.max(tail_wls[np.where((tail_wls < center_of_filt))[0]])
+            max_trans_wl = np.min(tail_wls[np.where((tail_wls > center_of_filt))[0]])
+            trans_fns[filt] = {
+                'wl': trans_wl, 
+                'eff': trans_eff,
+                'min_wl': min_trans_wl - 500.,
+                'max_wl': max_trans_wl + 500.
+            }
+
         for phase in np.arange(min(self.cube[0]), max(self.cube[0]), 1.0):
             current_lc_inds = np.where((abs(self.cube[0] - phase) <= 0.5))[0]
-
-            trans_fns = {}
 
             if len(current_lc_inds) > 0 and len(self.cube[4][current_lc_inds]) > 1: # Have data in at least two filters at this epoch
                 bluest_filt = np.unique(self.cube[4][current_lc_inds][np.argmin(self.cube[1][current_lc_inds])])[0]
                 reddest_filt = np.unique(self.cube[4][current_lc_inds][np.argmax(self.cube[1][current_lc_inds])])[0]
-
-                for i, filt in enumerate(self.cube[4][current_lc_inds]):
-                    trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt], filt)
-                    trans_eff /= max(trans_eff)
-                    # Get min and max wavelength for this filter, let's define it as where eff < 10%
-                    center_of_filt = trans_wl[np.argmax(trans_eff)]
-                    tail_wls = trans_wl[np.where((trans_eff < 0.025))[0]]
-                    min_trans_wl = np.max(tail_wls[np.where((tail_wls < center_of_filt))[0]])
-                    max_trans_wl = np.min(tail_wls[np.where((tail_wls > center_of_filt))[0]])
-                    trans_fns[filt] = {
-                        'wl': trans_wl, 
-                        'eff': trans_eff,
-                        'min_wl': min_trans_wl,
-                        'max_wl': max_trans_wl
-                    }
 
                 current_lc = self.cube[2][current_lc_inds]
                 current_lc = np.concatenate(([0.0], current_lc, [0.0]))
@@ -127,7 +154,7 @@ class DataCube:
                         ### Bin the transmission curve and SED to common resolution
                         binned_trans_wl, binned_trans_eff = bin_spec(trans_fns[filt]['wl'], trans_fns[filt]['eff'], wl_grid)
 
-                        if n == 0:
+                        if n == 0 and plot:
                             plt.plot(binned_trans_wl, binned_trans_eff*max(interp(wl_grid)))
 
                         ### Get overlap between the filter and the SED
@@ -170,8 +197,13 @@ class DataCube:
                         n += 1
                         if n == 100:
                             print('Couldnt iterate to match flux!')
-            
-                plt.errorbar(current_lc_wls, current_lc, yerr=current_lc_err, fmt='o', alpha=0.3)
-                plt.errorbar(measured_wls, measured_flux, yerr=current_lc_err, fmt='o')
-                plt.plot(wl_grid, interp1d(measured_wls, measured_flux, kind='linear')(wl_grid))
-                plt.show()
+
+                if plot:
+                    plt.errorbar(current_lc_wls, current_lc, yerr=current_lc_err, fmt='o', alpha=0.3)
+                    plt.errorbar(measured_wls, measured_flux, yerr=current_lc_err, fmt='o')
+                    plt.plot(wl_grid, interp1d(measured_wls, measured_flux, kind='linear')(wl_grid))
+                    plt.show()
+
+                if n < 100:
+                    ### Put the new effective wavelengths back into the data cube in the right spots
+                    self.cube[1][current_lc_inds] = measured_wls[1:-1]
