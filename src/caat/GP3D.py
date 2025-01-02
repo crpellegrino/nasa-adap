@@ -62,6 +62,7 @@ class GP3D(GP):
         log_transform=False,
         sn_set=None,
         use_fluxes=False,
+        mangle_sed=False
     ):
         """
         Builds the data set from the SN collection for a given filter
@@ -77,6 +78,7 @@ class GP3D(GP):
             log_transform=log_transform,
             sn_set=sn_set,
             use_fluxes=use_fluxes,
+            mangle_sed=mangle_sed
         )
 
         if len(phases) == 0:
@@ -116,6 +118,7 @@ class GP3D(GP):
         fit_residuals=False,
         set_to_normalize=None,
         use_fluxes=False,
+        mangle_sed=False
     ):
         """
         Processes the data set for the GP3D object's SN collection and
@@ -133,6 +136,7 @@ class GP3D(GP):
                 phasemax,
                 log_transform=log_transform,
                 use_fluxes=use_fluxes,
+                mangle_sed=mangle_sed
             )
 
             all_phases = np.concatenate((all_phases, phases.flatten()))
@@ -159,6 +163,7 @@ class GP3D(GP):
                     log_transform=log_transform,
                     sn_set=set_to_normalize,
                     use_fluxes=use_fluxes,
+                    mangle_sed=mangle_sed
                 )
 
                 all_template_phases = np.concatenate((all_template_phases, phases.flatten()))
@@ -397,6 +402,7 @@ class GP3D(GP):
         log_transform=False,
         plot=False,
         use_fluxes=False,
+        mangle_sed=False
     ):
         """
         Takes the (shifted) photometry from a given SN and subtracts from it
@@ -412,10 +418,16 @@ class GP3D(GP):
 
             if len(sn.shifted_data) == 0:
                 if sn.info.get("searched", False):
-                    shifted_mjd, shifted_mag, err, nondets = [], [], [], []
+                    if mangle_sed:
+                        shifted_mjd, shifted_mag, err, nondets, shifted_wls = [], [], [], [], []
+                    else:
+                        shifted_mjd, shifted_mag, err, nondets = [], [], [], []
                 else:
                     sn.correct_for_galactic_extinction()
-                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes, try_other_filts=False)
+                    if mangle_sed:
+                        shifted_mjd, shifted_mag, err, nondets, shifted_wls = sn.shift_to_max(filt, shift_fluxes=use_fluxes, try_other_filts=False, return_wls=True)
+                    else:
+                        shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes, try_other_filts=False)
             else:
                 if filt in sn.shifted_data.keys():
                     if use_fluxes:
@@ -444,27 +456,20 @@ class GP3D(GP):
                     shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
                     inds_to_fit = np.where((shifted_mjd > np.log(phasemin + log_transform)) & (shifted_mjd < np.log(phasemax + log_transform)))[0]
                     ### The wl corresponding to wl_ind is no more than the wl grid spacing away from the true wl being measured
-                    wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
+                    if not mangle_sed:
+                        wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
                 else:
                     inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
-                    wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
+                    if not mangle_sed:
+                        wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
 
                 phases = shifted_mjd[inds_to_fit]
                 mags = shifted_mag[inds_to_fit]
                 errs = err[inds_to_fit]
                 current_nondets = nondets[inds_to_fit]
+                if mangle_sed:
+                    current_wls = shifted_wls[inds_to_fit]
 
-                if plot and len(phases) > 0:
-                    Plot().plot_subtract_data_from_grid(
-                        gp_class=self,
-                        sn_class=sn,
-                        phase_grid=phase_grid,
-                        mag_grid=mag_grid,
-                        wl_ind=wl_ind,
-                        filt=filt,
-                        log_transform=log_transform,
-                        use_fluxes=use_fluxes,
-                    )
 
                 for i, phase in enumerate(phases):
                     ### Get index of current phase in phase grid
@@ -474,14 +479,20 @@ class GP3D(GP):
                     else:
                         phase_ind = np.argmin(abs(phase_grid - phase))
 
+                    if mangle_sed:
+                        wl_ind = np.argmin(abs(wl_grid - current_wls[i]))
+
                     if np.isnan(mag_grid[phase_ind, wl_ind]):
                         logger.warning(f"NaN Found: phase {np.exp(phase)}, wl {10**wl_grid[wl_ind]}")
                         continue
 
-                    if log_transform is not None:
-                        wl_residual = np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
+                    if mangle_sed:
+                        wl_residual = current_wls[i]
                     else:
-                        wl_residual = self.wle[filt] * (1 + sn.info.get("z", 0))
+                        if log_transform is not None:
+                            wl_residual = np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
+                        else:
+                            wl_residual = self.wle[filt] * (1 + sn.info.get("z", 0))
 
                     residuals.setdefault(filt, []).extend(
                         [
@@ -511,6 +522,17 @@ class GP3D(GP):
                             fmt="o",
                             color=colors.get(filt, "k"),
                         )
+                if plot and len(phases) > 0:
+                    Plot().plot_subtract_data_from_grid(
+                        gp_class=self,
+                        sn_class=sn,
+                        phase_grid=phase_grid,
+                        mag_grid=mag_grid,
+                        wl_ind=wl_ind,
+                        filt=filt,
+                        log_transform=log_transform,
+                        use_fluxes=use_fluxes,
+                    )
 
         return residuals
 
@@ -528,7 +550,8 @@ class GP3D(GP):
         subtract_polynomial=False,
         interactive=False,
         use_fluxes=False,
-        run_diagnostics=False
+        run_diagnostics=False,
+        mangle_sed=False
     ):
         """
         Function to run the Gaussian Process Regression
@@ -545,6 +568,7 @@ class GP3D(GP):
         interactive: Flag to interactively choose to include each GP fit to the final median-combined template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
+        mangle_sed: Flag to iteratively shift effective wavelengths at each epoch to better match SED to measured photometry
         """
         if interactive:
             plot = True
@@ -567,6 +591,7 @@ class GP3D(GP):
                 fit_residuals=True,
                 set_to_normalize=set_to_normalize,
                 use_fluxes=use_fluxes,
+                mangle_sed=mangle_sed
             )
             kernel_params = []
             gaussian_processes = []
@@ -614,6 +639,7 @@ class GP3D(GP):
                     log_transform=log_transform,
                     plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
                     use_fluxes=use_fluxes,
+                    mangle_sed=mangle_sed
                 )
 
                 phase_residuals = np.asarray([p["phase_residual"] for phot_list in residuals.values() for p in phot_list])
@@ -646,7 +672,9 @@ class GP3D(GP):
                     for filt in filtlist:
 
                         if log_transform is not False:
-                            if len(wl_residuals[abs(10**wl_residuals - self.wle[filt] * (1 + sn.info.get("z", 0))) < 1]) == 0:
+                            if not mangle_sed and len(wl_residuals[abs(10**wl_residuals - self.wle[filt] * (1 + sn.info.get("z", 0))) < 1]) == 0:
+                                continue
+                            elif mangle_sed and len(wl_residuals[abs(10**wl_residuals - self.wle[filt] * (1 + sn.info.get("z", 0))) < 500]) == 0:
                                 continue
                             
                             test_times_linear = np.arange(
@@ -659,7 +687,7 @@ class GP3D(GP):
                             test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
                             filts_fitted.append(filt)
                         else:
-                            if len(wl_residuals[wl_residuals == self.wle[filt]] * (1 + sn.info.get("z", 0))) == 0:
+                            if not mangle_sed and len(wl_residuals[wl_residuals == self.wle[filt]] * (1 + sn.info.get("z", 0))) == 0:
                                 continue
                             test_times = np.arange(phasemin, phasemax, 1.0 / 24)
                             test_waves = np.ones(len(test_times)) * self.wle[filt] * (1 + sn.info.get("z", 0))
@@ -903,6 +931,7 @@ class GP3D(GP):
         subtract_polynomial=False,
         use_fluxes=False,
         run_diagnostics=False,
+        mangle_sed=False
     ):
         """
         Function to predict light curve behavior using Gaussian Process Regression
@@ -918,6 +947,7 @@ class GP3D(GP):
         median_combine_gps: Flag to median combine the GP fits to each individual SN to create a final median light curve template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
+        mangle_sed: Flag to iteratively shift effective wavelengths at each epoch to better match SED to measured photometry
         """
         if not subtract_median and not subtract_polynomial:  # test_size is not None:
             ### Fitting sample of SNe altogether
@@ -934,6 +964,7 @@ class GP3D(GP):
                 subtract_median=subtract_median,
                 use_fluxes=use_fluxes,
                 run_diagnostics=run_diagnostics,
+                mangle_sed=mangle_sed
             )
 
             if plot:
@@ -977,6 +1008,7 @@ class GP3D(GP):
                 subtract_polynomial=subtract_polynomial,
                 use_fluxes=use_fluxes,
                 run_diagnostics=run_diagnostics,
+                mangle_sed=mangle_sed
             )
 
             median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)

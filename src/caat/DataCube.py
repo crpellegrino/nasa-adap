@@ -11,12 +11,18 @@ logging.basicConfig(level=logging.INFO)
 
 class DataCube:
 
-    def __init__(self, name: str = None, data: dict = None, shift: bool = False):
+    def __init__(self, sn=None, name: str = None, data: dict = None, shift: bool = False):
 
-        self.sn = SN(name=name, data=data)
-        self.sn.load_json_data()
-        self.sn.load_swift_data()
-        if shift:
+        if sn:
+            self.sn = sn
+        else:
+            sn = SN(name=name, data=data)
+            self.sn = sn
+
+        if not self.sn.data:
+            self.sn.load_json_data()
+            self.sn.load_swift_data()
+        if shift and not self.sn.shifted_data:
             for filt in self.sn.data.keys():
                 self.sn.shift_to_max(filt)
         self.sn.convert_to_fluxes()
@@ -45,6 +51,15 @@ class DataCube:
                 ),
                 np.hstack(
                     [np.repeat([filt], len(data[filt])) for filt in data.keys()]
+                ),
+                np.hstack(
+                    [[d['mag'] for d in data[filt]] for filt in data.keys()]
+                ),
+                np.hstack(
+                    [[d['err'] for d in data[filt]] for filt in data.keys()]
+                ),
+                np.hstack(
+                    [[d.get('nondetection', False) for d in data[filt]] for filt in data.keys()]
                 )
             ], dtype=object
         )
@@ -56,13 +71,16 @@ class DataCube:
         Assumes a data cube of size (n, 5)
         """
         data = {}
-        for i in range(len(self.cube[:])):
+        for i in range(len(self.cube[0,:])):
             data.setdefault(self.cube[4][i], []).append(
                 {
                     'mjd': self.cube[0][i], 
                     'wle': self.cube[1][i], 
-                    'flux': self.cube[2][i], 
-                    'fluxerr': self.cube[3][i]
+                    'flux': np.log10(self.cube[2][i]), 
+                    'fluxerr': self.cube[3][i]/10**(self.cube[2][i]),
+                    'mag': self.cube[5][i],
+                    'err': self.cube[6][i],
+                    'nondetection': self.cube[7][i]
                 }
             )
         

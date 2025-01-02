@@ -22,6 +22,7 @@ from dustmaps.sfd import SFDQuery
 from .Plot import Plot
 # from .SN import SN
 # from .SNCollection import SNCollection, SNType
+from .DataCube import DataCube
 
 warnings.filterwarnings("ignore")
 
@@ -84,6 +85,7 @@ class GP(Fitter):
         log_transform=False,
         sn_set=None,
         use_fluxes=False,
+        mangle_sed=False
     ):
         """
         Loads all the data, shifts the data to peak,
@@ -109,6 +111,11 @@ class GP(Fitter):
                 sn.load_swift_data()
                 sn.load_json_data()
 
+            if mangle_sed:
+                cube = DataCube(sn=sn)
+                cube.measure_flux_in_filter()
+                cube.deconstruct_cube()
+
             if len(sn.shifted_data) == 0:
                 ### Check to see if we've already tried to fit for maximum
                 if not sn.info:
@@ -117,11 +124,18 @@ class GP(Fitter):
                     if sn.info.get('searched', False) and not sn.info.get("peak_mag", 0) > 0:
                         shifted_mjd = []
                     else:
-                        shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
+                        if mangle_sed:
+                            shifted_mjd, shifted_mag, err, nondets, shifted_wls = sn.shift_to_max(filt, shift_fluxes=use_fluxes, return_wls=True)
+
+                        else:    
+                            shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
 
             else:
                 ### We already successfully fit for peak, so get the shifted photometry for this filter
-                shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
+                if mangle_sed:
+                    shifted_mjd, shifted_mag, err, nondets, shifted_wls = sn.shift_to_max(filt, shift_fluxes=use_fluxes, return_wls=True)
+                else:
+                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
 
             if len(shifted_mjd) > 0:
 
@@ -136,10 +150,16 @@ class GP(Fitter):
                 phases = np.concatenate((phases, shifted_mjd[inds_to_fit]))
                 mags = np.concatenate((mags, shifted_mag[inds_to_fit]))
                 errs = np.concatenate((errs, err[inds_to_fit]))
-                if log_transform is not False:
-                    wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * np.log10(self.wle[filt] * (1 + z))))
+                if mangle_sed:
+                    if log_transform is not False:
+                        wls = np.concatenate((wls, np.log10(shifted_wls[inds_to_fit])))
+                    else:
+                        wls = np.concatenate((wls, shifted_wls[inds_to_fit]))
                 else:
-                    wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * self.wle[filt] * (1 + z)))
+                    if log_transform is not False:
+                        wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * np.log10(self.wle[filt] * (1 + z))))
+                    else:
+                        wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * self.wle[filt] * (1 + z)))
 
         return (
             phases.reshape(-1, 1),

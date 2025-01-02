@@ -629,7 +629,8 @@ class SN:
         plot=False,
         offset=0,
         shift_fluxes=False,
-        try_other_filts=True
+        try_other_filts=True,
+        return_wls=False
     ):
 
         if not self.data:
@@ -637,6 +638,8 @@ class SN:
             self.load_json_data()
 
         if filt not in self.data.keys():
+            if return_wls:
+                return [], [], [], [], []
             return [], [], [], []
 
         if not self.info.get("peak_mjd") and not self.info.get("peak_mag"):
@@ -655,12 +658,15 @@ class SN:
                     self.info["searched"] = True
 
         if not self.info.get("peak_mag", 0) > 0:
+            if return_wls:
+                return [], [], [], [], []
             return [], [], [], []
 
         mjds = np.asarray([phot["mjd"] for phot in self.data[filt]]) - self.info["peak_mjd"]
         mags = np.asarray([phot["mag"] for phot in self.data[filt]]) - self.info["peak_mag"]
         errs = np.asarray([phot["err"] for phot in self.data[filt]])
         nondets = np.asarray([phot.get("nondetection", False) for phot in self.data[filt]])
+        wls = np.asarray([phot.get("wle", None) for phot in self.data[filt]])
 
         if plot:
             Plot().plot_shift_to_max(sn_class=self, mjds=mjds, mags=mags, errs=errs, nondets=nondets, filt=filt)
@@ -672,6 +678,7 @@ class SN:
                     "mag": mags[i],
                     "err": errs[i],
                     "nondetection": nondets[i],
+                    "wle": wls[i]
                 }
                 for i in range(len(mjds))
             ]
@@ -683,9 +690,15 @@ class SN:
             shifted_flux = np.asarray([phot["flux"] for phot in self.shifted_data[filt]])
             shifted_err = np.asarray([phot["fluxerr"] for phot in self.shifted_data[filt]])
             nondets = np.asarray([phot.get("nondetection", False) for phot in self.shifted_data[filt]])
+            wls = np.asarray([phot.get('wle', None) for phot in self.shifted_data[filt]])
 
-            return shifted_mjd, shifted_flux, shifted_err, nondets
+            if return_wls:
+                return shifted_mjd, shifted_flux, shifted_err, nondets, wls
+            return shifted_mjd, shifted_flux, shifted_err, nondets, wls
 
+
+        if return_wls:
+            return mjds, mags, errs, nondets, wls
         return mjds, mags, errs, nondets
 
     def interactively_fit_for_max(
