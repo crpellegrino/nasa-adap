@@ -64,6 +64,13 @@ class SN:
         "z": 8890,
         "y": 9600,
         "w": 5985,
+        "u'": 3560,
+        "g'": 4830,
+        "r'": 6260,
+        "i'": 7670,
+        "z'": 8890,
+        "y'": 9600,
+        "w'": 5985,
         "Y": 9600,
         "U": 3600,
         "B": 4380,
@@ -440,10 +447,18 @@ class SN:
             return
 
         coord = SkyCoord(ra=self.info["ra"] * u.deg, dec=self.info["dec"] * u.deg)
-        exts = fm(
-            np.asarray([self.wle[filt] * (1 + self.info.get("z", 0)) for filt in self.data.keys() if filt in self.wle.keys()]),
-            sfd(coord),
-        )
+        exts = {}
+        for filt in self.data.keys():
+            if filt in self.wle.keys():
+                try:
+                    exts[filt] = fm(self.wle[filt] * (1 + self.info.get("z", 0)), sfd(coord))
+                except:
+                    ### First input needs to be an array
+                    exts[filt] = fm(np.asarray([self.wle[filt] * (1 + self.info.get("z", 0))]), sfd(coord))
+        # exts = fm(
+        #     np.asarray([self.wle[filt] * (1 + self.info.get("z", 0)) for filt in self.data.keys() if filt in self.wle.keys()]),
+        #     sfd(coord),
+        # )
 
         i = 0
         for filt in self.data.keys():
@@ -452,7 +467,7 @@ class SN:
                 new_phot = []
                 for phot in self.data[filt]:
                     if not phot.get("ext_corrected", False):
-                        phot["mag"] -= exts[i]
+                        phot["mag"] -= exts[filt]#exts[i]
                         phot["ext_corrected"] = True
                     new_phot.append(phot)
 
@@ -470,7 +485,7 @@ class SN:
                     new_phot = []
                     for phot in self.shifted_data[filt]:
                         if not phot.get("ext_corrected", False):
-                            phot["mag"] -= exts[i]
+                            phot["mag"] -= exts[filt]#exts[i]
                             phot["ext_corrected"] = True
                         new_phot.append(phot)
 
@@ -666,7 +681,7 @@ class SN:
         mags = np.asarray([phot["mag"] for phot in self.data[filt]]) - self.info["peak_mag"]
         errs = np.asarray([phot["err"] for phot in self.data[filt]])
         nondets = np.asarray([phot.get("nondetection", False) for phot in self.data[filt]])
-        wls = np.asarray([phot.get("wle", None) for phot in self.data[filt]])
+        wls = np.asarray([phot.get("wle", self.wle[filt] * (1 + self.info.get("z", 0.0))) for phot in self.data[filt]])
 
         if plot:
             Plot().plot_shift_to_max(sn_class=self, mjds=mjds, mags=mags, errs=errs, nondets=nondets, filt=filt)
@@ -690,11 +705,11 @@ class SN:
             shifted_flux = np.asarray([phot["flux"] for phot in self.shifted_data[filt]])
             shifted_err = np.asarray([phot["fluxerr"] for phot in self.shifted_data[filt]])
             nondets = np.asarray([phot.get("nondetection", False) for phot in self.shifted_data[filt]])
-            wls = np.asarray([phot.get('wle', None) for phot in self.shifted_data[filt]])
+            wls = np.asarray([phot.get("wle", self.wle[filt] * (1 + self.info.get("z", 0.0))) for phot in self.shifted_data[filt]])
 
             if return_wls:
                 return shifted_mjd, shifted_flux, shifted_err, nondets, wls
-            return shifted_mjd, shifted_flux, shifted_err, nondets, wls
+            return shifted_mjd, shifted_flux, shifted_err, nondets
 
 
         if return_wls:

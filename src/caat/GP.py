@@ -22,7 +22,6 @@ from dustmaps.sfd import SFDQuery
 from .Plot import Plot
 # from .SN import SN
 # from .SNCollection import SNCollection, SNType
-from .DataCube import DataCube
 
 warnings.filterwarnings("ignore")
 
@@ -110,11 +109,6 @@ class GP(Fitter):
             if len(sn.data) == 0:
                 sn.load_swift_data()
                 sn.load_json_data()
-
-            if mangle_sed:
-                cube = DataCube(sn=sn)
-                cube.measure_flux_in_filter()
-                cube.deconstruct_cube()
 
             if len(sn.shifted_data) == 0:
                 ### Check to see if we've already tried to fit for maximum

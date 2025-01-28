@@ -21,6 +21,7 @@ from scipy.stats import iqr
 from .GP import GP
 from .Plot import Plot
 from .Diagnostics import Diagnostic
+from .DataCube import DataCube
 from caat.utils import colors
 import logging
 
@@ -70,6 +71,20 @@ class GP3D(GP):
         the uncertainty in the measurements as the standard deviation
         of the photometry at each phase step
         """
+
+        # if sn_set is None:
+        #     sn_set = self.collection.sne
+
+        # for sn in sn_set:
+            
+        #     if len(sn.data) == 0:
+        #         sn.load_swift_data()
+        #         sn.load_json_data()
+            
+        #     if mangle_sed is not False:
+        #         cube = DataCube(sn=sn, filt_list=mangle_sed)
+        #         cube.measure_flux_in_filter()
+        #         cube.deconstruct_cube()
 
         phases, mags, errs, wls = self.process_dataset_for_gp(
             filt,
@@ -129,15 +144,36 @@ class GP3D(GP):
 
         all_phases, all_wls, all_mags, all_errs = [], [], [], []
 
+        for sn in self.collection.sne:
+            
+            if len(sn.data) == 0:
+                sn.load_swift_data()
+                sn.load_json_data()
+            
+            if mangle_sed is not False:
+                cube = DataCube(sn=sn, filt_list=filtlist)
+                cube.measure_flux_in_filter()
+                cube.deconstruct_cube()
+
         for filt in filtlist:
-            phases, wl_grid, mags, err_grid = self.build_samples_3d(
-                filt,
-                phasemin,
-                phasemax,
-                log_transform=log_transform,
-                use_fluxes=use_fluxes,
-                mangle_sed=mangle_sed
-            )
+            if mangle_sed:
+                phases, wl_grid, mags, err_grid = self.build_samples_3d(
+                    filt,
+                    phasemin,
+                    phasemax,
+                    log_transform=log_transform,
+                    use_fluxes=use_fluxes,
+                    mangle_sed=filtlist
+                )
+            else:
+                phases, wl_grid, mags, err_grid = self.build_samples_3d(
+                    filt,
+                    phasemin,
+                    phasemax,
+                    log_transform=log_transform,
+                    use_fluxes=use_fluxes,
+                    mangle_sed=False
+                )
 
             all_phases = np.concatenate((all_phases, phases.flatten()))
             all_wls = np.concatenate((all_wls, wl_grid.flatten()))
@@ -155,16 +191,34 @@ class GP3D(GP):
                 all_template_mags,
                 all_template_errs,
             ) = ([], [], [], [])
+
+            if mangle_sed is not False:
+                for sn in set_to_normalize:
+                    cube = DataCube(sn=sn, filt_list=filtlist)
+                    cube.measure_flux_in_filter()
+                    cube.deconstruct_cube()
+            
             for filt in filtlist:
-                phases, wl_grid, mags, err_grid = self.build_samples_3d(
-                    filt,
-                    phasemin,
-                    phasemax,
-                    log_transform=log_transform,
-                    sn_set=set_to_normalize,
-                    use_fluxes=use_fluxes,
-                    mangle_sed=mangle_sed
-                )
+                if mangle_sed:
+                    phases, wl_grid, mags, err_grid = self.build_samples_3d(
+                        filt,
+                        phasemin,
+                        phasemax,
+                        log_transform=log_transform,
+                        sn_set=set_to_normalize,
+                        use_fluxes=use_fluxes,
+                        mangle_sed=filtlist
+                    )
+                else:
+                     phases, wl_grid, mags, err_grid = self.build_samples_3d(
+                        filt,
+                        phasemin,
+                        phasemax,
+                        log_transform=log_transform,
+                        sn_set=set_to_normalize,
+                        use_fluxes=use_fluxes,
+                        mangle_sed=False
+                    )                   
 
                 all_template_phases = np.concatenate((all_template_phases, phases.flatten()))
                 all_template_wls = np.concatenate((all_template_wls, wl_grid.flatten()))
@@ -330,9 +384,9 @@ class GP3D(GP):
 
         for j in range(len(wl_grid)):
 
-            ### Get all data that falls within this wl +- 100 A
+            ### Get all data that falls within this wl +- 500 A
             if log_transform is not False:
-                inds = np.where((abs(10**all_template_wls - 10 ** wl_grid[j]) <= 100))[0]
+                inds = np.where((abs(10**all_template_wls - 10 ** wl_grid[j]) <= 499))[0]
                 ### Add an array of fake measurements to anchor the ends of the fit
                 anchor_phases = np.asarray(
                     [
@@ -342,7 +396,7 @@ class GP3D(GP):
                     ]
                 )
             else:
-                inds = np.where((abs(all_template_wls - wl_grid[j]) <= 100))[0]
+                inds = np.where((abs(all_template_wls - wl_grid[j]) <= 499))[0]
                 anchor_phases = np.asarray([phasemin, phasemin + 2.5, phasemax])
 
             if len(inds) > 0:
@@ -436,11 +490,13 @@ class GP3D(GP):
                         shifted_mag = np.asarray([phot["flux"] for phot in sn.shifted_data[filt]])
                         err = np.asarray([phot["fluxerr"] for phot in sn.shifted_data[filt]])
                         nondets = np.asarray([phot.get("nondetection", False) for phot in sn.shifted_data[filt]])
+                        shifted_wls = np.asarray([phot["wle"] for phot in sn.shifted_data[filt]])
                     else:
                         sn.correct_for_galactic_extinction()
                         shifted_mag = np.asarray([phot["mag"] for phot in sn.shifted_data[filt]])
                         err = np.asarray([phot["err"] for phot in sn.shifted_data[filt]])
                         nondets = np.asarray([phot.get("nondetection", False) for phot in sn.shifted_data[filt]])
+                        shifted_wls = np.asarray([phot["wle"] for phot in sn.shifted_data[filt]])
 
                     shifted_mjd = np.asarray([phot["mjd"] for phot in sn.shifted_data[filt]])
                 else:
@@ -487,7 +543,10 @@ class GP3D(GP):
                         continue
 
                     if mangle_sed:
-                        wl_residual = current_wls[i]
+                        if log_transform is not None:
+                            wl_residual = np.log10(current_wls[i])
+                        else:
+                            wl_residual = current_wls[i]
                     else:
                         if log_transform is not None:
                             wl_residual = np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
@@ -674,7 +733,7 @@ class GP3D(GP):
                         if log_transform is not False:
                             if not mangle_sed and len(wl_residuals[abs(10**wl_residuals - self.wle[filt] * (1 + sn.info.get("z", 0))) < 1]) == 0:
                                 continue
-                            elif mangle_sed and len(wl_residuals[abs(10**wl_residuals - self.wle[filt] * (1 + sn.info.get("z", 0))) < 500]) == 0:
+                            elif mangle_sed and filt not in sn.shifted_data.keys():
                                 continue
                             
                             test_times_linear = np.arange(
@@ -724,27 +783,30 @@ class GP3D(GP):
 
                         if plot:
                             key_to_plot = "flux" if use_fluxes else "mag"
-                            Plot().plot_run_gp_overlay(
-                                fig=fig,
-                                ax=ax,
-                                gp_class=self,
-                                sn_class=sn,
-                                test_times=test_times,
-                                test_prediction=test_prediction,
-                                std_prediction=std_prediction,
-                                template_mags=template_mags,
-                                residuals=residuals,
-                                phase_residuals=phase_residuals,
-                                wl_residuals=wl_residuals,
-                                err_residuals=err_residuals,
-                                inds_to_fit=inds_to_fit,
-                                log_transform=log_transform,
-                                filt=filt,
-                                use_fluxes=use_fluxes,
-                                key_to_plot=key_to_plot,
-                                phasemin=phasemin,
-                                phasemax=phasemax,
-                            )
+                            try:
+                                Plot().plot_run_gp_overlay(
+                                    fig=fig,
+                                    ax=ax,
+                                    gp_class=self,
+                                    sn_class=sn,
+                                    test_times=test_times,
+                                    test_prediction=test_prediction,
+                                    std_prediction=std_prediction,
+                                    template_mags=template_mags,
+                                    residuals=residuals,
+                                    phase_residuals=phase_residuals,
+                                    wl_residuals=wl_residuals,
+                                    err_residuals=err_residuals,
+                                    inds_to_fit=inds_to_fit,
+                                    log_transform=log_transform,
+                                    filt=filt,
+                                    use_fluxes=use_fluxes,
+                                    key_to_plot=key_to_plot,
+                                    phasemin=phasemin,
+                                    phasemax=phasemax,
+                                )
+                            except:
+                                continue
 
                         if run_diagnostics:
                             d = Diagnostic()
@@ -816,8 +878,9 @@ class GP3D(GP):
                         x, y = np.meshgrid(phase_grid[phase_inds_fitted], wl_grid[wl_inds_fitted])
                         try:
                             test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
-                        except:
+                        except Exception as e:
                             logger.warning(f'WARNING:   BROKEN FIT FOR {sn.name}')
+                            logger.info(e)
                             continue
                         test_prediction = np.asarray(test_prediction)
 
@@ -838,6 +901,8 @@ class GP3D(GP):
                         test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
                         for i, col in enumerate(test_prediction_reshaped.T):
                             window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5) # Window size of approximately half a filter length scale
+                            if window_size % 2 == 0:
+                                window_size += 1 # Must be odd
                             # Use astropy convolve function to handle NaNs
                             test_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend') # Boxcar smoothing
 
@@ -845,6 +910,8 @@ class GP3D(GP):
                         std_prediction_smoothed = np.empty(std_prediction_reshaped.shape)
                         for i, col in enumerate(std_prediction_reshaped.T):
                             window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5)
+                            if window_size % 2 == 0:
+                                window_size += 1 # Must be odd
                             std_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend')
 
                         gp_grid = np.empty((len(wl_grid), len(phase_grid)))
