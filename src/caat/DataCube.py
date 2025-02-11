@@ -4,20 +4,27 @@ from caat import SN
 from caat.utils import query_svo_service, bin_spec
 import logging
 from scipy.interpolate import interp1d
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
 class DataCube:
-
+    """"
+    Class with routines to handle pre-processing of data
+    Runs SN methods such as `load_<>_data`, `shift_to_max`,
+    and `convert_to_fluxes` to initialize data set.
+    Also optionally performs iterative warping on SED at each
+    epoch to better match observed photometry.
+    Constructs a Pandas dataframe with this information to be
+    saved, read, and manipulated as part of the fitting routine
+    """
     def __init__(
             self, 
-            sn=None, 
-            name: str = None, 
-            data: dict = None, 
-            shift: bool = False,
-            filt_list: list = []
+            sn: SN = None, 
+            name: str | None = None, 
+            data: dict | None = None, 
         ):
 
         if sn:
@@ -29,23 +36,25 @@ class DataCube:
         if not self.sn.data:
             self.sn.load_json_data()
             self.sn.load_swift_data()
-        if shift and not self.sn.shifted_data:
-            for filt in self.sn.data.keys():
-                self.sn.shift_to_max(filt)
-        self.sn.convert_to_fluxes()
-        self.shift = shift
-        self.filt_list = filt_list
+        self.sn.correct_for_galactic_extinction()
+        for filt in self.sn.data.keys():
+            self.sn.shift_to_max(filt)
+        self.sn.convert_all_mags_to_fluxes()
 
     def construct_cube(self):
 
-        if self.shift:
-            data = self.sn.shifted_data
-        else:
-            data = self.sn.data
-
-        if not any([filt for filt in self.filt_list if filt in data.keys()]):
-            self.cube = np.asarray(
+        if not any(
+            [
+                filt for filt in list({filt for filt in list(self.sn.data.keys()) + list(self.sn.shifted_data.keys())})
+            ]
+        ):
+            cube = np.asarray(
                 [
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
                     [],
                     [],
                     [],
@@ -56,35 +65,69 @@ class DataCube:
                     []
                 ]
             )
-            return
 
-        self.cube = np.asarray(
-            [
-                np.hstack(
-                    [[d['mjd'] for d in data[filt]] for filt in data.keys() if filt in self.filt_list]
-                ),
-                np.hstack(
-                    [np.repeat([self.sn.wle[filt] * (1 + self.sn.info.get('z', 0.0))], len(data[filt])) for filt in data.keys() if filt in self.filt_list]
-                ),
-                np.hstack(
-                    [[10**d['flux'] for d in data[filt]] for filt in data.keys() if filt in self.filt_list]
-                ),
-                np.hstack(
-                    [[d['fluxerr']*10**d['flux'] for d in data[filt]] for filt in data.keys() if filt in self.filt_list]
-                ),
-                np.hstack(
-                    [np.repeat([filt], len(data[filt])) for filt in data.keys() if filt in self.filt_list]
-                ),
-                np.hstack(
-                    [[d['mag'] for d in data[filt]] for filt in data.keys() if filt in self.filt_list]
-                ),
-                np.hstack(
-                    [[d['err'] for d in data[filt]] for filt in data.keys() if filt in self.filt_list]
-                ),
-                np.hstack(
-                    [[d.get('nondetection', False) for d in data[filt]] for filt in data.keys() if filt in self.filt_list]
-                )
-            ], dtype=object
+        else:       
+            cube = np.array(
+                [
+                    np.hstack(
+                        [[d['mjd'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [[d['mjd'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
+                    ),
+                    np.hstack(
+                        [np.repeat([filt], len(self.sn.data[filt])) for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [np.repeat([filt], len(self.sn.shifted_data[filt])) for filt in self.sn.shifted_data.keys()]
+                    ),
+                    np.hstack(
+                        [np.repeat([self.sn.wle[filt] * (1 + self.sn.info.get('z', 0.0))], len(self.sn.data[filt])) for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [np.repeat([self.sn.wle[filt] * (1 + self.sn.info.get('z', 0.0))], len(self.sn.shifted_data[filt])) for filt in self.sn.shifted_data.keys()]
+                    ),
+                    np.hstack(
+                        [[10**d['flux'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [[10**d['flux'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
+                    ),
+                    np.hstack(
+                        [[d['fluxerr']*10**d['flux'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [[d['mag'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [[d['mag'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
+                    ),
+                    np.hstack(
+                        [[d['err'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [[d.get('nondetection', False) for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                    )
+                ], dtype=object
+            )
+
+        self.cube = pd.DataFrame(
+            data=cube.T, 
+            columns=[
+                "MJD", 
+                "Phase", 
+                "Filter", 
+                "ShiftedFilter", 
+                "Wavelength",
+                "ShiftedWavelength", 
+                "Flux", 
+                "ShiftedFlux", 
+                "Fluxerr", 
+                "Mag", 
+                "ShiftedMag", 
+                "Magerr", 
+                "Nondetection"
+            ]
         )
 
     def deconstruct_cube(self):
@@ -93,24 +136,26 @@ class DataCube:
         of photometry to be used in GP fitting
         Assumes a data cube of size (n, 5)
         """
-        data = {}
-        for i in range(len(self.cube[0,:])):
-            data.setdefault(self.cube[4][i], []).append(
-                {
-                    'mjd': self.cube[0][i], 
-                    'wle': self.cube[1][i], 
-                    'flux': np.log10(self.cube[2][i]), 
-                    'fluxerr': self.cube[3][i]/10**(self.cube[2][i]),
-                    'mag': self.cube[5][i],
-                    'err': self.cube[6][i],
-                    'nondetection': self.cube[7][i]
-                }
-            )
+        #TODO: Make this compatible with change to pandas df
+        pass
+        # data = {}
+        # for i in range(len(self.cube[0,:])):
+        #     data.setdefault(self.cube[4][i], []).append(
+        #         {
+        #             'mjd': self.cube[0][i], 
+        #             'wle': self.cube[1][i], 
+        #             'flux': np.log10(self.cube[2][i]), 
+        #             'fluxerr': self.cube[3][i]/10**(self.cube[2][i]),
+        #             'mag': self.cube[5][i],
+        #             'err': self.cube[6][i],
+        #             'nondetection': self.cube[7][i]
+        #         }
+        #     )
         
-        if self.shift:
-            self.sn.shifted_data = data
-        else:
-            self.sn.data = data
+        # if self.shift:
+        #     self.sn.shifted_data = data
+        # else:
+        #     self.sn.data = data
 
     def plot_cube(self):
 
@@ -118,7 +163,7 @@ class DataCube:
             self.construct_cube()
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
-        ax.errorbar(self.cube[0], self.cube[1], self.cube[2], zerr=self.cube[3], fmt='o')
+        ax.errorbar(self.cube['Phase'], self.cube['Wavelength'], self.cube['Flux'], zerr=self.cube['Fluxerr'], fmt='o')
         ax.set_xlabel("Phase Grid")
         ax.set_ylabel("Wavelengths")
         ax.set_zlabel("Fluxes")
@@ -126,7 +171,11 @@ class DataCube:
         plt.tight_layout()
         plt.show()
 
-    def measure_flux_in_filter(self, plot: bool = False, verbose: bool = False):
+    def measure_flux_in_filter(
+            self, 
+            plot: bool = False, 
+            verbose: bool = False
+        ):
 
         filt_tel_conversion = {'UVW2': 'Swift',
                                'UVM2': 'Swift',
@@ -145,11 +194,11 @@ class DataCube:
 
         self.construct_cube()
 
-        if len(self.cube[0]) == 0: # No data, so return nothing
+        if len(self.cube['MJD']) == 0: # No data, so return nothing
             return
 
         trans_fns = {}
-        for filt in np.unique(self.cube[4]):
+        for filt in np.unique(self.cube["Filter"]):
             filt = filt.replace("'", "")
             trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt], filt)
             trans_eff /= max(trans_eff)
@@ -169,19 +218,23 @@ class DataCube:
                 print(tail_wls)
 
 
-        for phase in np.arange(min(self.cube[0]), max(self.cube[0]), 1.0):
-            current_lc_inds = np.where((abs(self.cube[0] - phase) <= 0.5))[0]
+        for phase in np.arange(min(self.cube['Phase']), max(self.cube['Phase']), 1.0):
+            current_lc_inds = np.where((abs(self.cube['Phase'] - phase) <= 0.5))[0]
 
-            if len(current_lc_inds) > 0 and len(self.cube[4][current_lc_inds]) > 1: # Have data in at least two filters at this epoch
-                bluest_filt = np.unique(self.cube[4][current_lc_inds][np.argmin(self.cube[1][current_lc_inds])])[0]
-                reddest_filt = np.unique(self.cube[4][current_lc_inds][np.argmax(self.cube[1][current_lc_inds])])[0]
+            if len(current_lc_inds) > 0 and len({filt for filt in self.cube['Filter'][current_lc_inds]}) > 1: # Have data in at least two filters at this epoch
+                current_lc_cube = self.cube[abs(self.cube['Phase'] - phase) <= 0.5]
 
-                current_lc = self.cube[2][current_lc_inds]
+                bluest_wavelength = np.min(current_lc_cube['Wavelength'].values)
+                reddest_wavelength = np.max(current_lc_cube['Wavelength'].values)
+                bluest_filt = np.unique(current_lc_cube[current_lc_cube['Wavelength'] == bluest_wavelength]['Filter'])[0]
+                reddest_filt = np.unique(current_lc_cube[current_lc_cube['Wavelength'] == reddest_wavelength]['Filter'])[0]
+
+                current_lc = current_lc_cube['Flux'].values
                 current_lc = np.concatenate(([0.0], current_lc, [0.0]))
-                current_lc_err = np.concatenate(([0.0], self.cube[3][current_lc_inds], [0.0]))
+                current_lc_err = np.concatenate(([0.0], current_lc_cube['Fluxerr'], [0.0]))
                 current_lc_wls = np.concatenate((
                     [trans_fns[bluest_filt]['min_wl'] * (1 + self.sn.info.get('z', 0.0))],
-                    self.cube[1][current_lc_inds],
+                    current_lc_cube['Wavelength'],
                     [trans_fns[reddest_filt]['max_wl'] * (1 + self.sn.info.get('z', 0.0))]
                 ))
                 wl_grid = np.linspace(current_lc_wls[0], current_lc_wls[-1], 50)
@@ -200,7 +253,7 @@ class DataCube:
 
                     residuals = []
 
-                    for i, filt in enumerate(self.cube[4][current_lc_inds]):
+                    for i, filt in enumerate(current_lc_cube['Filter']):
 
                         ### Bin the transmission curve and SED to common resolution
                         binned_trans_wl, binned_trans_eff = bin_spec(trans_fns[filt]['wl'], trans_fns[filt]['eff'], wl_grid)
@@ -221,7 +274,7 @@ class DataCube:
                             implied_central_wl = interp_trans_wl[np.argmax(binned_sed[sed_inds] * interp_trans_eff)]
                             #convolved_sed = binned_sed[sed_inds] * interp_trans_eff
                             #implied_central_wl = interp_trans_wl[np.argsort(convolved_sed)[len(convolved_sed)//2]]
-                            real_flux_inds = np.where((self.cube[4][current_lc_inds] == filt))[0]+1
+                            real_flux_inds = np.where((current_lc_cube['Filter'] == filt))[0]+1
 
                             if len(real_flux_inds) > 1:
                                 real_flux = np.average(current_lc[real_flux_inds])
@@ -267,7 +320,9 @@ class DataCube:
 
                 if n < 100:
                     ### Put the new effective wavelengths back into the data cube in the right spots
-                    self.cube[1][current_lc_inds] = measured_wls[1:-1]
+                    current_lc_cube['Wavelength'] = measured_wls[1:-1]
+                    current_lc_cube['ShiftedWavelength'] = measured_wls[1:-1]
+                    self.cube.update(current_lc_cube)
 
         if verbose:
             print(f'Done warping SED for {self.sn.name}')

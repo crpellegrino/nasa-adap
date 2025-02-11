@@ -33,8 +33,22 @@ warnings.filterwarnings("ignore")
 
 class GP3D(GP):
     """
-    GP fit to all bands and epochs
+    Class to perform GP fitting simultaneously across wavelength and phase
+    for a given collection of SNe.
+    Reads in a list of SNe to fit, as well as a collection of SNe to normalize
+    that sample against, along with a set of optional flags for different
+    fitting routines and parameters. 
+    Each SN in the science and comparison samples should already have its photometric
+    data pre-processed using the routines available in the `SN` class, run within the
+    `DataCube` class, and read directly from the SN datacube files created by the latter. 
     """
+
+    def __init__(self, *args, **kwargs):
+        #TODO: Set the flags, such as use_fluxes, here
+        #      Using these flags we will set the column names of
+        #      the pandas dataframes to be read during the data processing
+        #      and sample building steps
+        pass
 
     @staticmethod
     def interpolate_grid(grid, interp_array, filter_window=171):
@@ -149,11 +163,12 @@ class GP3D(GP):
             if len(sn.data) == 0:
                 sn.load_swift_data()
                 sn.load_json_data()
-            
-            if mangle_sed is not False:
+                            
                 cube = DataCube(sn=sn, filt_list=filtlist)
-                cube.measure_flux_in_filter()
-                cube.deconstruct_cube()
+                cube.construct_cube()
+                if mangle_sed is not False:
+                    cube.measure_flux_in_filter()
+                # cube.deconstruct_cube()
 
         for filt in filtlist:
             if mangle_sed:

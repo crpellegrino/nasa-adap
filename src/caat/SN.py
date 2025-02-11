@@ -17,11 +17,7 @@ import astropy.units as u
 from dustmaps.sfd import SFDQuery
 
 from .CAAT import CAAT
-# from .GP import GP, Fitter
-# from .GP3D import GP3D
-# from .Kernels import RBFKernel, WhiteKernel, MaternKernel
 from .Plot import Plot
-# from .SNCollection import SNCollection, SNType
 from caat.utils import ROOT_DIR, colors
 import logging
 
@@ -34,7 +30,9 @@ warnings.filterwarnings("ignore")
 class SN:
     """
     A Supernova object, taking a classification (i.e. SN II, SESNe, FBOT, etc.),
-    a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko)
+    a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko).
+    Provides routines for the extraction and transformation of photometric data
+    that are uniformly run and saved within the `DataCube` class. 
     """
 
     base_path = os.path.join(ROOT_DIR, "data/")
@@ -303,6 +301,20 @@ class SN:
 
             self.shifted_data = shifted_data
 
+    def convert_all_mags_to_fluxes(self):
+        for data in [self.data, self.shifted_data]:
+            for filt in data.keys():
+                new_phot = []
+                if filt in self.zps.keys():
+                    for phot in data[filt]:
+                        phot["flux"] = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * phot["mag"]))  # * 1e15
+                        phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
+                        new_phot.append(phot)
+                    data[filt] = new_phot
+                else:
+                    raise Exception(f"No zeropoint information found for filter {filt}")
+            
+
     def convert_to_fluxes(self, phasemin=-20, phasemax=50):
         """
         Converts the saved photometric magnitudes to fluxes
@@ -455,42 +467,34 @@ class SN:
                 except:
                     ### First input needs to be an array
                     exts[filt] = fm(np.asarray([self.wle[filt] * (1 + self.info.get("z", 0))]), sfd(coord))
-        # exts = fm(
-        #     np.asarray([self.wle[filt] * (1 + self.info.get("z", 0)) for filt in self.data.keys() if filt in self.wle.keys()]),
-        #     sfd(coord),
-        # )
 
-        i = 0
         for filt in self.data.keys():
             if filt in self.wle.keys():
 
                 new_phot = []
                 for phot in self.data[filt]:
                     if not phot.get("ext_corrected", False):
-                        phot["mag"] -= exts[filt]#exts[i]
+                        phot["mag"] -= exts[filt][0]
                         phot["ext_corrected"] = True
                     new_phot.append(phot)
 
                 self.data[filt] = new_phot
-                i += 1
 
             else:
                 self.data[filt] = []
 
         if self.shifted_data:
-            i = 0
             for filt in self.shifted_data:
                 if filt in self.wle.keys():
 
                     new_phot = []
                     for phot in self.shifted_data[filt]:
                         if not phot.get("ext_corrected", False):
-                            phot["mag"] -= exts[filt]#exts[i]
+                            phot["mag"] -= exts[filt][0]
                             phot["ext_corrected"] = True
                         new_phot.append(phot)
 
                     self.shifted_data[filt] = new_phot
-                    i += 1
 
                 else:
                     self.shifted_data[filt] = []
