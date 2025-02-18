@@ -189,7 +189,12 @@ class DataCube:
                                'r': 'ZTF',
                                'i': 'ZTF',
                                'R': 'CTIO',
-                               'I': 'CTIO'
+                               'I': 'CTIO',
+                               'J': 'CTIO',
+                               'H': 'CTIO',
+                               'K': 'CTIO',
+                               'Y': 'DECam',
+                               'u': 'DECam'
                             }
 
         self.construct_cube()
@@ -199,8 +204,7 @@ class DataCube:
 
         trans_fns = {}
         for filt in np.unique(self.cube["Filter"]):
-            filt = filt.replace("'", "")
-            trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt], filt)
+            trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt.replace("'", "")], filt.replace("'", ""))
             trans_eff /= max(trans_eff)
             # Get min and max wavelength for this filter, let's define it as where eff < 10%
             center_of_filt = trans_wl[np.argmax(trans_eff)]
