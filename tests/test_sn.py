@@ -40,12 +40,12 @@ def test_load_json_data():
     sn.load_json_data()
     assert len(sn.data) > 0
 
-def test_convert_to_fluxes():
-    sn = SN(name='SN2022acko')
-    sn.load_json_data()
-    sn.load_swift_data()
-    sn.convert_to_fluxes()
-    assert all([d.get('flux', False) for f in sn.data.keys() for d in sn.data[f]])
+# def test_convert_to_fluxes():
+#     sn = SN(name='SN2022acko')
+#     sn.load_json_data()
+#     sn.load_swift_data()
+#     sn.convert_to_fluxes()
+#     assert all([d.get('flux', False) for f in sn.data.keys() for d in sn.data[f]])
 
 def test_extinction_correction():
     sn = SN(name='SN2022acko')
