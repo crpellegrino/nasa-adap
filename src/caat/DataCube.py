@@ -43,13 +43,19 @@ class DataCube:
 
     def construct_cube(self):
 
-        if not any(
-            [
-                filt for filt in list({filt for filt in list(self.sn.data.keys()) + list(self.sn.shifted_data.keys())})
-            ]
+        if (
+            not any(
+                [
+                    filt for filt in list({filt for filt in list(self.sn.data.keys()) + list(self.sn.shifted_data.keys())})
+                ]
+            )
+        or (
+            not self.sn.data or not self.sn.shifted_data
+            )
         ):
             cube = np.asarray(
                 [
+                    [],
                     [],
                     [],
                     [],
@@ -88,13 +94,16 @@ class DataCube:
                         [np.repeat([self.sn.wle[filt] * (1 + self.sn.info.get('z', 0.0))], len(self.sn.shifted_data[filt])) for filt in self.sn.shifted_data.keys()]
                     ),
                     np.hstack(
-                        [[10**d['flux'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                        [[d['flux'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
                     ),
                     np.hstack(
-                        [[10**d['flux'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
+                        [[d['flux'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
                     ),
                     np.hstack(
-                        [[d['fluxerr']*10**d['flux'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                        [[d['fluxerr']*d['flux'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
+                    ),
+                    np.hstack(
+                        [[d['fluxerr'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
                     ),
                     np.hstack(
                         [[d['mag'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
@@ -122,7 +131,8 @@ class DataCube:
                 "ShiftedWavelength", 
                 "Flux", 
                 "ShiftedFlux", 
-                "Fluxerr", 
+                "Fluxerr",
+                "ShiftedFluxerr", 
                 "Mag", 
                 "ShiftedMag", 
                 "Magerr", 

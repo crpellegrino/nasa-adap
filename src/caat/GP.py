@@ -18,10 +18,10 @@ from dustmaps.sfd import SFDQuery
 
 # from .CAAT import CAAT
 # from .GP3D import GP3D
-# from .Kernels import RBFKernel, WhiteKernel, MaternKernel
+from .Kernels import RBFKernel, WhiteKernel, MaternKernel
 from .Plot import Plot
 # from .SN import SN
-# from .SNCollection import SNCollection, SNType
+from .SNCollection import SNCollection, SNType
 
 warnings.filterwarnings("ignore")
 
@@ -72,19 +72,31 @@ class GP(Fitter):
         "Q": 46028,
     }
 
-    def __init__(self, sne_collection, kernel):
+    def __init__(
+            self, 
+            sne_collection: Union[SNCollection, SNType], 
+            kernel: Union[RBFKernel, WhiteKernel, MaternKernel],
+            filtlist: list,
+            phasemin: int, 
+            phasemax: int, 
+            use_fluxes: bool = False, 
+            log_transform: bool = False
+        ):
+
         super().__init__(sne_collection)
         self.kernel = kernel
+        self.filtlist = filtlist
+        self.use_fluxes = use_fluxes
+        self.log_transform = log_transform
+        self.phasemin = phasemin
+        self.phasemax = phasemax
 
     def process_dataset_for_gp(
         self,
         filt,
-        phasemin,
-        phasemax,
         log_transform=False,
         sn_set=None,
         use_fluxes=False,
-        mangle_sed=False
     ):
         """
         Loads all the data, shifts the data to peak,
@@ -100,60 +112,19 @@ class GP(Fitter):
         )
 
         if sn_set is None:
-            sn_set = self.collection.sne
+            sn_set = self.collection
 
-        for sn in sn_set:
+        for sn in sn_set.sne:
 
-            z = sn.info.get("z", 0)
+            current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Phase'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
+            current_mags = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedMag'].values if use_fluxes is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFlux']
+            current_errs = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Magerr'].values if use_fluxes is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Fluxerr'] if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFluxerr']
+            current_wls = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedWavelength'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogShiftedWavelength'].values
 
-            if len(sn.data) == 0:
-                sn.load_swift_data()
-                sn.load_json_data()
-
-            if len(sn.shifted_data) == 0:
-                ### Check to see if we've already tried to fit for maximum
-                if not sn.info:
-                    shifted_mjd = []
-                else:
-                    if sn.info.get('searched', False) and not sn.info.get("peak_mag", 0) > 0:
-                        shifted_mjd = []
-                    else:
-                        if mangle_sed:
-                            shifted_mjd, shifted_mag, err, nondets, shifted_wls = sn.shift_to_max(filt, shift_fluxes=use_fluxes, return_wls=True)
-
-                        else:    
-                            shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
-
-            else:
-                ### We already successfully fit for peak, so get the shifted photometry for this filter
-                if mangle_sed:
-                    shifted_mjd, shifted_mag, err, nondets, shifted_wls = sn.shift_to_max(filt, shift_fluxes=use_fluxes, return_wls=True)
-                else:
-                    shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
-
-            if len(shifted_mjd) > 0:
-
-                if log_transform is not False:
-                    shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
-
-                if log_transform is not False:
-                    inds_to_fit = np.where((shifted_mjd > np.log(phasemin + log_transform)) & (shifted_mjd < np.log(phasemax + log_transform)))[0]
-                else:
-                    inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
-
-                phases = np.concatenate((phases, shifted_mjd[inds_to_fit]))
-                mags = np.concatenate((mags, shifted_mag[inds_to_fit]))
-                errs = np.concatenate((errs, err[inds_to_fit]))
-                if mangle_sed:
-                    if log_transform is not False:
-                        wls = np.concatenate((wls, np.log10(shifted_wls[inds_to_fit])))
-                    else:
-                        wls = np.concatenate((wls, shifted_wls[inds_to_fit]))
-                else:
-                    if log_transform is not False:
-                        wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * np.log10(self.wle[filt] * (1 + z))))
-                    else:
-                        wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * self.wle[filt] * (1 + z)))
+            phases = np.concatenate((phases, current_phases))
+            mags = np.concatenate((mags, current_mags))
+            errs = np.concatenate((errs, current_errs))
+            wls = np.concatenate((wls, current_wls))
 
         return (
             phases.reshape(-1, 1),
@@ -162,9 +133,9 @@ class GP(Fitter):
             wls.reshape(-1, 1),
         )
 
-    def run_gp(self, filt, phasemin, phasemax, test_size, log_transform=False, sn_set=None, use_fluxes=False):
+    def run_gp(self, filt, phasemin, phasemax, test_size, sn_set=None):
 
-        phases, mags, errs, _ = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform, sn_set=sn_set, use_fluxes=use_fluxes)
+        phases, mags, errs, _ = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=self.log_transform, sn_set=sn_set, use_fluxes=self.use_fluxes)
         X_train, _, Y_train, _, Z_train, _ = train_test_split(phases, mags, errs, test_size=test_size)
 
         ### Get array of errors at each timestep
