@@ -93,14 +93,39 @@ class GP3D(GP):
                     cube['LogShiftedWavelength'] = np.log10(cube['ShiftedWavelength'].values.astype(float))
                 
                 # Drop nondetections that are within the phase range and less constraining
-                # than the peak magnitude
-                inds_to_drop_nondets = cube.loc[(cube['Nondetection'] == True) & (cube['ShiftedMag'] < 0.0)].index
-                cube = cube.drop(inds_to_drop_nondets).reset_index(drop=True)
+                # than the first or last detection in each filter
+                for filt in set(cube['Filter'].values):
+                    try:
+                        min_flux_before_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] < 0) & (cube['Filter'] == filt)]['Flux'].values)
+                        inds_to_drop_nondets_before_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] < 0) & (cube['Filter'] == filt) & (cube['Flux'] > min_flux_before_peak)].index
+                        cube = cube.drop(inds_to_drop_nondets_before_peak).reset_index(drop=True)
+
+                        min_flux_after_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] > 0) & (cube['Filter'] == filt)]['Flux'].values)
+                        inds_to_drop_nondets_after_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] > 0) & (cube['Filter'] == filt) & (cube['Flux'] > min_flux_after_peak)].index
+                        cube = cube.drop(inds_to_drop_nondets_after_peak).reset_index(drop=True)
+
+                    except ValueError: # No values for this filter, so continue
+                        continue
+
+                # Drop nondetections between the first and last detection
+                cube_only_dets = cube.loc[cube['Nondetection'] == False]
+                if len(cube_only_dets['Phase'].values) > 0:
+                    first_detection = min(cube_only_dets['Phase'].values)
+                    last_detection = max(cube_only_dets['Phase'].values)
+                    inds_to_drop_nondets_between_dets = cube.loc[
+                        (
+                            cube['Phase'] > first_detection
+                        ) & (
+                            cube['Phase'] < last_detection
+                        ) & (
+                            cube['Nondetection'] == True
+                        )
+                    ].index
+                    cube = cube.drop(inds_to_drop_nondets_between_dets).reset_index(drop=True)
                 
                 # Construct anchor points
                 # TODO: Implement
 
-                # Ensure the cubes persist in memory
                 sn.cube = cube
 
 
@@ -924,6 +949,7 @@ class GP3D(GP):
             return gaussian_processes, phase_grid, kernel_params, wl_grid
 
         else:  # called if we are not fitting to residuals
+            #TODO: This is all deprecated and probably should never be run
             all_phases, all_wls, all_mags, all_errs = self.process_dataset_for_gp_3d(
                 log_transform=self.log_transform,
                 use_fluxes=self.use_fluxes,

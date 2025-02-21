@@ -544,7 +544,7 @@ class SN:
             self.load_swift_data()
             self.load_json_data()
 
-        if filt not in self.data.keys():
+        if filt not in self.data.keys() or filt not in self.wle.keys():
             if return_wls:
                 return [], [], [], [], []
             return [], [], [], []

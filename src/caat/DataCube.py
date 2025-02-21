@@ -37,8 +37,10 @@ class DataCube:
             self.sn.load_json_data()
             self.sn.load_swift_data()
         self.sn.correct_for_galactic_extinction()
-        for filt in self.sn.data.keys():
+        for filt in list(self.sn.data.keys()):
             self.sn.shift_to_max(filt)
+            if filt not in self.sn.wle.keys():
+                del self.sn.data[filt]
         self.sn.convert_all_mags_to_fluxes()
 
     def construct_cube(self):
@@ -120,6 +122,27 @@ class DataCube:
                 ], dtype=object
             )
 
+        if len(cube.shape) != 2:
+            logger.warning(f"WARNING: Construct cube failed for {self.sn.name}")
+            cube = np.asarray(
+                [
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    [],
+                    []
+                ]
+            )
+
         self.cube = pd.DataFrame(
             data=cube.T, 
             columns=[
@@ -138,7 +161,7 @@ class DataCube:
                 "Magerr", 
                 "Nondetection"
             ]
-        )
+        ).dropna()
 
     def deconstruct_cube(self):
         """
