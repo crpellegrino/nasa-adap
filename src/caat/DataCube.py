@@ -5,6 +5,7 @@ from caat.utils import query_svo_service, bin_spec
 import logging
 from scipy.interpolate import interp1d
 import pandas as pd
+import os
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -206,9 +207,27 @@ class DataCube:
 
     def measure_flux_in_filter(
             self, 
+            niter: int = 100,
             plot: bool = False, 
-            verbose: bool = False
+            verbose: bool = False,
+            save: bool = False
         ):
+
+        #TODO: Encorporate niter
+        #TODO: Diagnostics on observed photometry versus mangled photometry
+        #      and trends across filters
+
+        if save and os.path.exists(
+            os.path.join(
+                    self.sn.base_path,
+                    self.sn.classification,
+                    self.sn.subtype,
+                    self.sn.name,
+                    self.sn.name + "_datacube_mangled.csv",
+            )
+        ):
+            logger.info(f"Already saved mangled datacube for {self.sn.name}, skipping")
+            return
 
         filt_tel_conversion = {'UVW2': 'Swift',
                                'UVM2': 'Swift',
@@ -227,7 +246,11 @@ class DataCube:
                                'H': 'CTIO',
                                'K': 'CTIO',
                                'Y': 'DECam',
-                               'u': 'DECam'
+                               'u': 'DECam',
+                               'G': 'GAIA',
+                               'y': 'PAN-STARRS',
+                               'z': 'PAN-STARRS',
+                               'w': 'PAN-STARRS'
                             }
 
         self.construct_cube()
@@ -236,6 +259,7 @@ class DataCube:
             return
 
         trans_fns = {}
+        filts_to_ignore = []
         for filt in np.unique(self.cube["Filter"]):
             trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt.replace("'", "")], filt.replace("'", ""))
             trans_eff /= max(trans_eff)
@@ -252,8 +276,11 @@ class DataCube:
                     'max_wl': max_trans_wl + 500.
                 }
             except:
-                print(tail_wls)
+                logger.warning(f"Warning: transmission function failed for {filt}, ignoring")
+                filts_to_ignore.append(filt)
 
+        inds_to_drop = self.cube.loc[self.cube['Filter'].isin(filts_to_ignore)].index
+        self.cube = self.cube.drop(inds_to_drop).reset_index(drop=True)
 
         for phase in np.arange(min(self.cube['Phase']), max(self.cube['Phase']), 1.0):
             current_lc_inds = np.where((abs(self.cube['Phase'] - phase) <= 0.5))[0]
@@ -286,7 +313,11 @@ class DataCube:
                 interp = interp1d(measured_wls, measured_flux, kind='linear')
                 binned_sed = interp(wl_grid)
 
-                while any(errors > 1.5) and n < 100:
+                #while any(errors > 1.5) and n < 100:
+                for i in range(100):
+
+                    if all(errors <= 1.5):
+                        break
 
                     residuals = []
 
@@ -318,8 +349,16 @@ class DataCube:
                             else:
                                 real_flux = current_lc[real_flux_inds][0]
 
-                            error = max(flux/real_flux, real_flux/flux)
-                            resid = flux / real_flux
+                            try:
+                                error = max(flux/real_flux, real_flux/flux)
+                            except ZeroDivisionError:
+                                error = 100
+
+                            try:
+                                resid = flux / real_flux
+                            except ZeroDivisionError:
+                                resid = 100
+
                             if verbose:
                                 print(f'Filter: {filt}, convolved flux: {flux}, measured flux: {real_flux}, error: {error}')
                                 print(f'Filter: {filt}, real wavelength: {current_lc_wls[i+1]}, warped wl: {implied_central_wl}')
@@ -363,3 +402,14 @@ class DataCube:
 
         if verbose:
             print(f'Done warping SED for {self.sn.name}')
+
+        if save:
+            self.cube.to_csv(
+                os.path.join(
+                    self.sn.base_path,
+                    self.sn.classification,
+                    self.sn.subtype,
+                    self.sn.name,
+                    self.sn.name + "_datacube_mangled.csv",
+                ),
+            )

@@ -45,6 +45,10 @@ def query_svo_service(instrument, filter):
         url = base_url + f'ID=CTIO/ANDICAM.{filter}'
     elif instrument.lower() == 'decam':
         url = base_url + f'ID=CTIO/DECam.{filter}'
+    elif instrument.lower() == 'gaia':
+        url = base_url + f'ID=GAIA/GAIA0.G'
+    elif instrument.lower() == 'pan-starrs':
+        url = base_url + f'ID=PAN-STARRS/PS1.{filter}'
     else:
         url = base_url + f'ID={instrument}/{instrument}.{filter}'
     s = BytesIO(urlopen(url).read())

@@ -31,6 +31,8 @@ logging.basicConfig(level=logging.INFO)
 
 warnings.filterwarnings("ignore")
 
+#TODO: The comparison between the observed photometry and gp fit should
+#      integrate the full predicted SED over the filter transmission function
 
 class GP3D(GP):
     """
@@ -67,22 +69,54 @@ class GP3D(GP):
         """
         Use the flags set in __init__ to filter the pandas dataframes for each SN
         in the science and control samples
-        TODO: Figure out if this will replace `process_dataset_for_gp_3d` or not
         """
         for collection in [self.collection, self.set_to_normalize]:
             for sn in collection.sne:
                 # Read the correct cube based on self.mangle_sed
-                # For now, we'll just construct it
-                datacube = DataCube(sn=sn)
-                datacube.construct_cube()
-                cube = datacube.cube
+                if self.mangle_sed:
+                    data_cube_filename = os.path.join(
+                        sn.base_path,
+                        sn.classification,
+                        sn.subtype,
+                        sn.name,
+                        sn.name + "_datacube_mangled.csv"
+                    )
+                else:
+                    data_cube_filename = os.path.join(
+                        sn.base_path,
+                        sn.classification,
+                        sn.subtype,
+                        sn.name,
+                        sn.name + "_datacube.csv"
+                    )                    
+                if os.path.exists(data_cube_filename):
+                    cube = pd.read_csv(data_cube_filename)
+                else:
+                    # For now, we'll just construct it
+                    datacube = DataCube(sn=sn)
+                    datacube.construct_cube()
+                    cube = datacube.cube
 
-                # Drop rows that:
-                # - are out of the phase range (+/- 5 days for the nondetections)
-                # - are not in the filtlist
+                # Drop rows that are out of the phase range
                 inds_to_drop_phase = cube.loc[(cube['Phase'] < self.phasemin) | (cube['Phase'] > self.phasemax)].index
                 cube = cube.drop(inds_to_drop_phase).reset_index(drop=True)
 
+                # Drop nondetections farther than 2 days away from first/last detection
+                try:
+                    min_phase = min(cube.loc[cube['Nondetection'] == False]['Phase'].values)
+                    inds_to_drop_nondets_before_first_det = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] < (min_phase - 2.0))].index
+                    cube = cube.drop(inds_to_drop_nondets_before_first_det).reset_index(drop=True)
+                except ValueError: # no values
+                    pass
+
+                try:
+                    max_phase = max(cube.loc[cube['Nondetection'] == False]['Phase'].values)
+                    inds_to_drop_nondets_after_last_det = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] > (max_phase + 2.0))].index
+                    cube = cube.drop(inds_to_drop_nondets_after_last_det).reset_index(drop=True)
+                except ValueError: # no values
+                    pass
+
+                # Drop rows corresponding to filters not in the user-provided filter list
                 inds_to_drop_filts = cube.loc[~cube['Filter'].isin(self.filtlist)].index
                 cube = cube.drop(inds_to_drop_filts).reset_index(drop=True)
 
@@ -94,18 +128,19 @@ class GP3D(GP):
                 
                 # Drop nondetections that are within the phase range and less constraining
                 # than the first or last detection in each filter
-                for filt in set(cube['Filter'].values):
-                    try:
-                        min_flux_before_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] < 0) & (cube['Filter'] == filt)]['Flux'].values)
-                        inds_to_drop_nondets_before_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] < 0) & (cube['Filter'] == filt) & (cube['Flux'] > min_flux_before_peak)].index
-                        cube = cube.drop(inds_to_drop_nondets_before_peak).reset_index(drop=True)
+                try:
+                    min_flux_before_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] < 0)]['Flux'].values)
+                    inds_to_drop_nondets_before_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] < 0) & (cube['Flux'] > min_flux_before_peak)].index
+                    cube = cube.drop(inds_to_drop_nondets_before_peak).reset_index(drop=True)
+                except ValueError: # No values pre-peak, so pass
+                    pass
 
-                        min_flux_after_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] > 0) & (cube['Filter'] == filt)]['Flux'].values)
-                        inds_to_drop_nondets_after_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] > 0) & (cube['Filter'] == filt) & (cube['Flux'] > min_flux_after_peak)].index
-                        cube = cube.drop(inds_to_drop_nondets_after_peak).reset_index(drop=True)
-
-                    except ValueError: # No values for this filter, so continue
-                        continue
+                try:
+                    min_flux_after_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] > 0)]['Flux'].values)
+                    inds_to_drop_nondets_after_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] > 0) & (cube['Flux'] > min_flux_after_peak)].index
+                    cube = cube.drop(inds_to_drop_nondets_after_peak).reset_index(drop=True)
+                except ValueError: # No values post-peak, so pass
+                    pass
 
                 # Drop nondetections between the first and last detection
                 cube_only_dets = cube.loc[cube['Nondetection'] == False]
@@ -478,8 +513,7 @@ class GP3D(GP):
         err_grid,
         log_transform=False,
         plot=False,
-        use_fluxes=False,
-        mangle_sed=False
+        use_fluxes=False
     ):
         """
         Takes the (shifted) photometry from a given SN and subtracts from it
@@ -514,15 +548,6 @@ class GP3D(GP):
             # of this if statement will skip over those filters
             # (I don't know why this isn't caught above)
             if len(phases) > 0 and not np.isnan(sn.info.get("z", 0)):
-
-                if log_transform is not False:
-                    ### The wl corresponding to wl_ind is no more than the wl grid spacing away from the true wl being measured
-                    if not mangle_sed:
-                        wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
-                else:
-                    if not mangle_sed:
-                        wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
-
                 for i, phase in enumerate(phases):
                     ### Get index of current phase in phase grid
                     if log_transform is not None:
@@ -531,8 +556,7 @@ class GP3D(GP):
                     else:
                         phase_ind = np.argmin(abs(phase_grid - phase))
 
-                    if mangle_sed:
-                        wl_ind = np.argmin(abs(wl_grid - current_wls[i]))
+                    wl_ind = np.argmin(abs(wl_grid - current_wls[i]))
 
                     if np.isnan(mag_grid[phase_ind, wl_ind]):
                         logger.warning(f"NaN Found: phase {np.exp(phase)}, wl {10**wl_grid[wl_ind]}")
@@ -542,22 +566,11 @@ class GP3D(GP):
                         logger.warning(f"Infinity found: phase {np.exp(phase)}, wl {10**wl_grid[wl_ind]}")
                         continue
 
-                    if mangle_sed:
-                        if log_transform is not None:
-                            wl_residual = np.log10(current_wls[i])
-                        else:
-                            wl_residual = current_wls[i]
-                    else:
-                        if log_transform is not None:
-                            wl_residual = np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
-                        else:
-                            wl_residual = self.wle[filt] * (1 + sn.info.get("z", 0))
-
                     residuals.setdefault(filt, []).extend(
                         [
                             {
                                 "phase_residual": phase,
-                                "wl_residual": wl_residual,
+                                "wl_residual": current_wls[i],
                                 "mag_residual": mags[i] - mag_grid[phase_ind, wl_ind],
                                 "err_residual": errs[i],
                                 "mag": mags[i],
@@ -610,18 +623,15 @@ class GP3D(GP):
         Function to run the Gaussian Process Regression
         ===============================================
         Takes as input:
-        filtlist: A list of filters to fit the data of
-        phasemin and phasemax: Endpoints of the phase range to fit
         test_size: The train/test split fraction (only if fit_residuals is False)
         plot: Optional flag to plot fits and intermediate figures
-        log_transform: Flag to log-transform the phases (natural log) and wavelengths (log base 10)
         fit_residuals: Flag to fit the residuals of the measured SN photometry and the "template" grid
         set_to_normalize: Flag to provide a SNCollection object to construct a "template" grid
-        median_combine_gps: Flag to median combine the GP fits to each individual SN to create a final median light curve template
+        subtract_median: Flag to calculate residuals by subtracting the SN magnitude/flux from a median template grid
+        subtract_polynomial: Flag to calculate residuals by subtracting the SN magnitude/flux from a polynomial template grid
         interactive: Flag to interactively choose to include each GP fit to the final median-combined template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
-        mangle_sed: Flag to iteratively shift effective wavelengths at each epoch to better match SED to measured photometry
         """
         if interactive:
             plot = True
@@ -683,8 +693,7 @@ class GP3D(GP):
                     err_grid,
                     log_transform=self.log_transform,
                     plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
-                    use_fluxes=self.use_fluxes,
-                    mangle_sed=self.mangle_sed
+                    use_fluxes=self.use_fluxes
                 )
 
                 phase_residuals = np.asarray([p["phase_residual"] for phot_list in residuals.values() for p in phot_list])
@@ -717,10 +726,6 @@ class GP3D(GP):
                     for filt in self.filtlist:
 
                         if self.log_transform is not False:
-                            if not self.mangle_sed and len(wl_residuals[abs(10**wl_residuals - self.wle[filt] * (1 + sn.info.get("z", 0))) < 1]) == 0:
-                                continue
-                            elif self.mangle_sed and filt not in sn.shifted_data.keys():
-                                continue
                             
                             test_times_linear = np.arange(
                                 min(phase_residuals_linear),
@@ -730,13 +735,11 @@ class GP3D(GP):
                             test_times = np.log(test_times_linear - min(phase_residuals_linear) + 0.1)
 
                             test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
-                            filts_fitted.append(filt)
                         else:
                             if not self.mangle_sed and len(wl_residuals[wl_residuals == self.wle[filt]] * (1 + sn.info.get("z", 0))) == 0:
                                 continue
                             test_times = np.arange(self.phasemin, self.phasemax, 1.0 / 24)
                             test_waves = np.ones(len(test_times)) * self.wle[filt] * (1 + sn.info.get("z", 0))
-                            filts_fitted.append(filt)
 
                         ### Trying to convert back to normalized magnitudes here
                         if self.log_transform is not None:
@@ -756,7 +759,7 @@ class GP3D(GP):
                             test_times = np.exp(test_times) + min(phase_residuals_linear) - 0.1
                        
                         # Plot the SN photometry
-                        shifted_mjd = np.asarray([phot["mjd"] for phot in sn.shifted_data[filt]])
+                        shifted_mjd = sn.cube[sn.cube['Filter']==filt]['Phase'].values.astype(float)
                         if self.log_transform is not False:
                             shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=self.log_transform)
 
@@ -767,32 +770,35 @@ class GP3D(GP):
                         else:
                             inds_to_fit = np.where((shifted_mjd > self.phasemin) & (shifted_mjd < self.phasemax))[0]
 
-                        if plot:
-                            key_to_plot = "flux" if self.use_fluxes else "mag"
-                            try:
-                                Plot().plot_run_gp_overlay(
-                                    fig=fig,
-                                    ax=ax,
-                                    gp_class=self,
-                                    sn_class=sn,
-                                    test_times=test_times,
-                                    test_prediction=test_prediction,
-                                    std_prediction=std_prediction,
-                                    template_mags=template_mags,
-                                    residuals=residuals,
-                                    phase_residuals=phase_residuals,
-                                    wl_residuals=wl_residuals,
-                                    err_residuals=err_residuals,
-                                    inds_to_fit=inds_to_fit,
-                                    log_transform=self.log_transform,
-                                    filt=filt,
-                                    use_fluxes=self.use_fluxes,
-                                    key_to_plot=key_to_plot,
-                                    phasemin=self.phasemin,
-                                    phasemax=self.phasemax,
-                                )
-                            except:
-                                continue
+                        if len(inds_to_fit) > 0:
+                            filts_fitted.append(filt)
+
+                            if plot:
+                                key_to_plot = "flux" if self.use_fluxes else "mag"
+                                try:
+                                    Plot().plot_run_gp_overlay(
+                                        fig=fig,
+                                        ax=ax,
+                                        gp_class=self,
+                                        sn_class=sn,
+                                        test_times=test_times,
+                                        test_prediction=test_prediction,
+                                        std_prediction=std_prediction,
+                                        template_mags=template_mags,
+                                        residuals=residuals,
+                                        phase_residuals=phase_residuals,
+                                        wl_residuals=wl_residuals,
+                                        err_residuals=err_residuals,
+                                        inds_to_fit=inds_to_fit,
+                                        log_transform=self.log_transform,
+                                        filt=filt,
+                                        use_fluxes=self.use_fluxes,
+                                        key_to_plot=key_to_plot,
+                                        phasemin=self.phasemin,
+                                        phasemax=self.phasemax,
+                                    )
+                                except:
+                                    continue
 
                         if run_diagnostics:
                             d = Diagnostic()
@@ -858,10 +864,11 @@ class GP3D(GP):
 
                         ### Compare the wavelengths of our measured filters to those in the wl grid
                         ### and fit for those grid wls that are within 500 A of one of our measurements
-                        wl_inds_fitted = np.unique(np.where((diffs < 500.0))[0])
+                        wl_inds_fitted = np.unique(np.where((diffs < 1550.0))[0])
                         phase_inds_fitted = np.unique(np.where((phase_grid >= min(phases_to_predict)) & (phase_grid <= max(phases_to_predict)))[0])
                         #TODO: Check if these phases are correct (with the new dynamic offsets)
                         x, y = np.meshgrid(phase_grid[phase_inds_fitted], wl_grid[wl_inds_fitted])
+
                         try:
                             test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
                         except Exception as e:
@@ -978,8 +985,7 @@ class GP3D(GP):
         subtract_median=False,
         subtract_polynomial=False,
         use_fluxes=False,
-        run_diagnostics=False,
-        mangle_sed=False
+        run_diagnostics=False
     ):
         """
         Function to predict light curve behavior using Gaussian Process Regression
@@ -995,7 +1001,6 @@ class GP3D(GP):
         median_combine_gps: Flag to median combine the GP fits to each individual SN to create a final median light curve template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
-        mangle_sed: Flag to iteratively shift effective wavelengths at each epoch to better match SED to measured photometry
         """
         if not subtract_median and not subtract_polynomial:  # test_size is not None:
             ### Fitting sample of SNe altogether

@@ -307,7 +307,7 @@ class SN:
             new_phot = []
             if filt in self.zps.keys():
                 for phot in self.data[filt]:
-                    phot["flux"] = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * phot["mag"]))  # * 1e15
+                    phot["flux"] = self.zps[filt] * 1e-11 * 10 ** (-0.4 * phot["mag"])  # * 1e15
                     phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
                     new_phot.append(phot)
                 self.data[filt] = new_phot
