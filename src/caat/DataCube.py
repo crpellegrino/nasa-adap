@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from caat import SN
-from caat.utils import query_svo_service, bin_spec
+from caat.utils import query_svo_service, bin_spec, FILT_TEL_CONVERSION
 import logging
 from scipy.interpolate import interp1d
 import pandas as pd
@@ -229,30 +229,6 @@ class DataCube:
             logger.info(f"Already saved mangled datacube for {self.sn.name}, skipping")
             return
 
-        filt_tel_conversion = {'UVW2': 'Swift',
-                               'UVM2': 'Swift',
-                               'UVW1': 'Swift',
-                               'U': 'Swift',
-                               'c': 'Atlas',
-                               'o': 'Atlas',
-                               'B': 'Swift',
-                               'V': 'Swift',
-                               'g': 'ZTF',
-                               'r': 'ZTF',
-                               'i': 'ZTF',
-                               'R': 'CTIO',
-                               'I': 'CTIO',
-                               'J': 'CTIO',
-                               'H': 'CTIO',
-                               'K': 'CTIO',
-                               'Y': 'DECam',
-                               'u': 'DECam',
-                               'G': 'GAIA',
-                               'y': 'PAN-STARRS',
-                               'z': 'PAN-STARRS',
-                               'w': 'PAN-STARRS'
-                            }
-
         self.construct_cube()
 
         if len(self.cube['MJD']) == 0: # No data, so return nothing
@@ -261,7 +237,7 @@ class DataCube:
         trans_fns = {}
         filts_to_ignore = []
         for filt in np.unique(self.cube["Filter"]):
-            trans_wl, trans_eff = query_svo_service(filt_tel_conversion[filt.replace("'", "")], filt.replace("'", ""))
+            trans_wl, trans_eff = query_svo_service(FILT_TEL_CONVERSION[filt.replace("'", "")], filt.replace("'", ""))
             trans_eff /= max(trans_eff)
             # Get min and max wavelength for this filter, let's define it as where eff < 10%
             center_of_filt = trans_wl[np.argmax(trans_eff)]

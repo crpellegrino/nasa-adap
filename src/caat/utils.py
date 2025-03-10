@@ -14,6 +14,31 @@ ROOT_DIR = os.path.dirname(
     )
 )
 
+
+FILT_TEL_CONVERSION = {'UVW2': 'Swift',
+                        'UVM2': 'Swift',
+                        'UVW1': 'Swift',
+                        'U': 'Swift',
+                        'c': 'Atlas',
+                        'o': 'Atlas',
+                        'B': 'Swift',
+                        'V': 'Swift',
+                        'g': 'ZTF',
+                        'r': 'ZTF',
+                        'i': 'ZTF',
+                        'R': 'CTIO',
+                        'I': 'CTIO',
+                        'J': 'CTIO',
+                        'H': 'CTIO',
+                        'K': 'CTIO',
+                        'Y': 'DECam',
+                        'u': 'DECam',
+                        'G': 'GAIA',
+                        'y': 'PAN-STARRS',
+                        'z': 'PAN-STARRS',
+                        'w': 'PAN-STARRS'
+                    }
+
 colors = {
     "U": "purple",
     "B": "blue",
