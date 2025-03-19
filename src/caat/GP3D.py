@@ -748,9 +748,14 @@ class GP3D(GP):
                             wl_ind = np.argmin(abs(wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
                         
                         template_mags = []
-                        for i in range(len(test_times_linear)):
-                            j = np.argmin(abs(np.exp(phase_grid) - self.log_transform - test_times_linear[i]))
-                            template_mags.append(mag_grid[j, wl_ind])
+                        if self.log_transform is not False:
+                            for i in range(len(test_times_linear)):
+                                j = np.argmin(abs(np.exp(phase_grid) - self.log_transform - test_times_linear[i]))
+                                template_mags.append(mag_grid[j, wl_ind])
+                        else:
+                            for i in range(len(test_times)):
+                                j = np.argmin(abs(phase_grid - test_times[i]))
+                                template_mags.append(mag_grid[j, wl_ind])
 
                         template_mags = np.asarray(template_mags)
 
@@ -864,9 +869,8 @@ class GP3D(GP):
 
                         ### Compare the wavelengths of our measured filters to those in the wl grid
                         ### and fit for those grid wls that are within 500 A of one of our measurements
-                        wl_inds_fitted = np.unique(np.where((diffs < 1550.0))[0])
+                        wl_inds_fitted = np.unique(np.where((diffs < 500.0))[0])
                         phase_inds_fitted = np.unique(np.where((phase_grid >= min(phases_to_predict)) & (phase_grid <= max(phases_to_predict)))[0])
-                        #TODO: Check if these phases are correct (with the new dynamic offsets)
                         x, y = np.meshgrid(phase_grid[phase_inds_fitted], wl_grid[wl_inds_fitted])
 
                         try:
@@ -979,12 +983,10 @@ class GP3D(GP):
         self,
         test_size=0.9,
         plot=False,
-        log_transform=False,
         fit_residuals=False,
         set_to_normalize=False,
         subtract_median=False,
         subtract_polynomial=False,
-        use_fluxes=False,
         run_diagnostics=False
     ):
         """
@@ -1002,7 +1004,7 @@ class GP3D(GP):
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
         """
-        if not subtract_median and not subtract_polynomial:  # test_size is not None:
+        if not subtract_median and not subtract_polynomial:
             ### Fitting sample of SNe altogether
 
             gaussian_process, X_test, kernel_params, _ = self.run_gp(
@@ -1021,7 +1023,7 @@ class GP3D(GP):
                 for filt in self.filtlist:
 
                     test_times = np.linspace(min(X_test[:, 0]), max(X_test[:, 0]), 60)
-                    if log_transform is not None:
+                    if self.log_transform is not None:
                         test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt])
 
                     else:
@@ -1036,9 +1038,9 @@ class GP3D(GP):
                             gp_class=self,
                             test_prediction=test_prediction,
                             std_prediction=std_prediction,
-                            log_transform=log_transform,
+                            log_transform=self.log_transform,
                             filt=filt,
-                            use_fluxes=use_fluxes,
+                            use_fluxes=self.use_fluxes,
                         )
 
         else:
@@ -1054,55 +1056,31 @@ class GP3D(GP):
 
             median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
 
-            if log_transform is not False:
-                X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
+            if self.log_transform is not False:
+                X, Y = np.meshgrid(np.exp(phase_grid) - self.log_transform, 10**wl_grid)
             else:
                 X, Y = np.meshgrid(phase_grid, wl_grid)
 
-            # for i, col in enumerate(median_gp.T):
-            #     median_gp[:,i] = savgol_filter(col, 51, 3)
             median_gp = self.interpolate_grid(median_gp.T, wl_grid, filter_window=31)
+            for i, col in enumerate(median_gp.T):
+                median_gp[:,i] = savgol_filter(col, 51, 3)
             median_gp = median_gp.T
 
-
             iqr_grid = iqr(np.dstack(gaussian_processes), axis=-1, nan_policy='omit')
-            # for i, col in enumerate(iqr_grid.T):
-            #     iqr_grid[:,i] = savgol_filter(col, 51, 3)
             iqr_grid = self.interpolate_grid(iqr_grid.T, wl_grid, filter_window=31)
+            for i, col in enumerate(iqr_grid.T):
+                iqr_grid[:,i] = savgol_filter(col, 51, 3)
             iqr_grid = iqr_grid.T
             
             Z = median_gp
 
-            Plot().plot_construct_grid(gp_class=self, X=X, Y=Y, Z=Z, Z_lower=Z-iqr_grid, Z_upper=Z+iqr_grid, grid_type="final", use_fluxes=use_fluxes)
-        # elif subtract_polynomial:      
-        #     gaussian_processes, phase_grid, wl_grid = self.run_gp(filtlist, phasemin, 
-        #                                                           phasemax, plot=plot, 
-        #                                                           log_transform=log_transform, 
-        #                                                           fit_residuals=fit_residuals, 
-        #                                                           set_to_normalize=set_to_normalize,
-        #                                                           subtract_median=False, 
-        #                                                           subtract_polynomial=True)
-        #     print(np.shape(gaussian_processes), np.shape(phase_grid),np.shape(wl_grid))
-            
-        #     # fig = plt.figure()
-        #     # ax = fig.add_subplot(111, projection='3d')
-            
-        #     # if log_transform is not False:
-        #     #     X, Y = np.meshgrid(np.exp(phase_grid) - log_transform, 10**wl_grid)
-        #     # else:
-        #     #     X, Y = np.meshgrid(phase_grid, wl_grid)
-
-        #     # # Z = median_gp
-
-        #     # ax.plot_surface(X, Y, Z)
-        #     # #ax.axes.set_zlim3d(bottom=-5, top=5)
-        #     # ax.invert_zaxis()
-        #     # ax.set_xlabel('Phase Grid')
-        #     # ax.set_ylabel('Wavelengths')
-        #     # ax.set_zlabel('Magnitude')
-        #     # plt.title('Final Polynomial GP Fit')
-        #     # plt.show()
-
-        # else:
-        #     raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
-
+            Plot().plot_construct_grid(
+                gp_class=self, 
+                X=X, 
+                Y=Y, 
+                Z=Z, 
+                Z_lower=Z-iqr_grid, 
+                Z_upper=Z+iqr_grid, 
+                grid_type="final", 
+                use_fluxes=self.use_fluxes
+            )

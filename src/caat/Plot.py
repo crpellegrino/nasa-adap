@@ -263,7 +263,7 @@ class Plot:
         if Z_upper is not None:
             ax.plot_surface(X, Y, Z_upper, color='blue', alpha=0.2)
         ax.set_xlabel("Phase Grid")
-        ax.set_ylabel("Wavelengths [nm]")
+        ax.set_ylabel("Wavelengths [Angstroms]")
 
         if use_fluxes:
             ax.set_zlabel("Flux")
