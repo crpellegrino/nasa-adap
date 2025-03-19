@@ -226,7 +226,7 @@ class SN:
                 self.data.setdefault(row["Filter"], []).append(
                     {
                         "mag": row["3SigMagLim"] + ab_minus_vega[row["Filter"]],
-                        "err": 0.01,
+                        "err": 0.1,
                         "mjd": row["MJD"],
                         "nondetection": True,
                     }
@@ -253,7 +253,7 @@ class SN:
                 for filt, mag_list in d.items():
                     self.data.setdefault(filt, []).extend([mag for mag in mag_list if mag["err"] < 9999])
                     self.data.setdefault(filt, []).extend(
-                        [mag | {"err": 0.01, "nondetection": True} for mag in mag_list if mag["err"] == 9999 and not np.isnan(mag["mag"])]
+                        [mag | {"err": 0.1, "nondetection": True} for mag in mag_list if mag["err"] == 9999 and not np.isnan(mag["mag"])]
                     )
 
     def write_shifted_data(self):
