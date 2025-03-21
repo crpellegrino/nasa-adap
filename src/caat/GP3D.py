@@ -969,7 +969,7 @@ class GP3D(GP):
             y = all_mags
             err = all_errs
 
-            X_train, X_test, Y_train, Y_test, Z_train, Z_test = train_test_split(x, y, err, test_size=test_size)
+            X_train, X_test, Y_train, _, Z_train, _ = train_test_split(x, y, err, test_size=test_size)
 
             ### Run the GP
             gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=Z_train, n_restarts_optimizer=10)
