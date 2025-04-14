@@ -208,14 +208,18 @@ class DataCube:
     def measure_flux_in_filter(
             self, 
             niter: int = 100,
+            convergence_threshold: float = 1.1,
             plot: bool = False, 
             verbose: bool = False,
             save: bool = False
         ):
 
-        #TODO: Encorporate niter
         #TODO: Diagnostics on observed photometry versus mangled photometry
         #      and trends across filters
+
+        if convergence_threshold <= 1.0:
+            logger.error("Convergence threshold must be greater than 1")
+            return
 
         if save and os.path.exists(
             os.path.join(
@@ -226,7 +230,7 @@ class DataCube:
                     self.sn.name + "_datacube_mangled.csv",
             )
         ):
-            logger.info(f"Already saved mangled datacube for {self.sn.name}, skipping")
+            logger.warning(f"Already saved mangled datacube for {self.sn.name}, skipping")
             return
 
         self.construct_cube()
@@ -241,7 +245,7 @@ class DataCube:
             trans_eff /= max(trans_eff)
             # Get min and max wavelength for this filter, let's define it as where eff < 10%
             center_of_filt = trans_wl[np.argmax(trans_eff)]
-            tail_wls = trans_wl[np.where((trans_eff < 0.025))[0]]
+            tail_wls = trans_wl[np.where((trans_eff < 0.1))[0]]
             try:
                 min_trans_wl = np.max(tail_wls[np.where((tail_wls < center_of_filt))[0]])
                 max_trans_wl = np.min(tail_wls[np.where((tail_wls > center_of_filt))[0]])
@@ -270,7 +274,8 @@ class DataCube:
                 reddest_filt = np.unique(current_lc_cube[current_lc_cube['Wavelength'] == reddest_wavelength]['Filter'])[0]
 
                 current_lc = current_lc_cube['Flux'].values
-                current_lc = np.concatenate(([0.0], current_lc, [0.0]))
+                # TODO: Eval
+                current_lc = np.concatenate(([0.0], current_lc, [current_lc[-1]/2]))
                 current_lc_err = np.concatenate(([0.0], current_lc_cube['Fluxerr'], [0.0]))
                 current_lc_wls = np.concatenate((
                     [trans_fns[bluest_filt]['min_wl'] * (1 + self.sn.info.get('z', 0.0))],
@@ -289,15 +294,12 @@ class DataCube:
                 interp = interp1d(measured_wls, measured_flux, kind='linear')
                 binned_sed = interp(wl_grid)
 
-                #while any(errors > 1.5) and n < 100:
-                for i in range(100):
-
-                    if all(errors <= 1.5):
+                for i in range(niter):
+                    if all(errors <= convergence_threshold) or n == niter:
                         break
 
                     residuals = []
-
-                    for i, filt in enumerate(current_lc_cube['Filter']):
+                    for j, filt in enumerate(current_lc_cube['Filter']):
 
                         ### Bin the transmission curve and SED to common resolution
                         binned_trans_wl, binned_trans_eff = bin_spec(trans_fns[filt]['wl'], trans_fns[filt]['eff'], wl_grid)
@@ -315,9 +317,14 @@ class DataCube:
                             flux = np.nansum(binned_sed[sed_inds] *
                                             interp_trans_eff
                             ) / len(interp_trans_eff)
-                            implied_central_wl = interp_trans_wl[np.argmax(binned_sed[sed_inds] * interp_trans_eff)]
-                            #convolved_sed = binned_sed[sed_inds] * interp_trans_eff
-                            #implied_central_wl = interp_trans_wl[np.argsort(convolved_sed)[len(convolved_sed)//2]]
+                            implied_central_wl = min(
+                                interp_trans_wl[np.argmax(binned_sed[sed_inds] * interp_trans_eff)], 
+                                trans_fns[filt]["max_wl"] * (1 + self.sn.info.get('z', 0.0))
+                            )
+                            implied_central_wl = max(
+                                implied_central_wl,
+                                trans_fns[filt]["min_wl"] * (1 + self.sn.info.get("z", 0.0))
+                            )
                             real_flux_inds = np.where((current_lc_cube['Filter'] == filt))[0]+1
 
                             if len(real_flux_inds) > 1:
@@ -336,33 +343,32 @@ class DataCube:
                                 resid = 100
 
                             if verbose:
-                                print(f'Filter: {filt}, convolved flux: {flux}, measured flux: {real_flux}, error: {error}')
-                                print(f'Filter: {filt}, real wavelength: {current_lc_wls[i+1]}, warped wl: {implied_central_wl}')
-                            errors[i] = error
+                                logger.info(f'Filter: {filt}, convolved flux: {flux}, measured flux: {real_flux}, error: {error}')
+                                logger.info(f'Filter: {filt}, real wavelength: {current_lc_wls[j+1]}, warped wl: {implied_central_wl}')
+                            errors[j] = error
                             residuals.append(resid)
-                            measured_flux[i+1] = flux
-                            measured_wls[i+1] = implied_central_wl
+                            measured_flux[j+1] = flux
+                            measured_wls[j+1] = implied_central_wl
 
                         else:
                             ### No overlap between SED and filter, so break
-                            n = 100
+                            n = niter
 
-
-                    if any(errors > 1.5):
+                    if any(errors > convergence_threshold):
 
                         ### Make a residual interpolated SED from the convolved fluxes at the 
                         ### implied wavelengths, warp the SED using this residual, and rerun the loop
-                        if n < 100:
-                            residual_interp = interp1d(measured_wls, np.concatenate(([0.0], residuals, [0.0])))
+                        if n < niter:
+                            residual_interp = interp1d(measured_wls, np.concatenate(([0.0], residuals, [residuals[-1]/2])))
                             residual = residual_interp(wl_grid)
                             binned_sed /= residual
                             
                             n += 1
-                            if any(errors > 1e3):
-                                n = 100
+                            if any(errors > 1e3) or any(np.isinf(errors)):
+                                n = niter
 
-                        if n == 100 and verbose:
-                            print('Couldnt iterate to match flux!')
+                        if n == niter and verbose:
+                            logger.warning('Couldnt iterate to match flux!')
 
                 if plot:
                     plt.errorbar(current_lc_wls, current_lc, yerr=current_lc_err, fmt='o', alpha=0.3)
@@ -370,14 +376,14 @@ class DataCube:
                     plt.plot(wl_grid, interp1d(measured_wls, measured_flux, kind='linear')(wl_grid))
                     plt.show()
 
-                if n < 100:
+                if n < niter:
                     ### Put the new effective wavelengths back into the data cube in the right spots
                     current_lc_cube['Wavelength'] = measured_wls[1:-1]
                     current_lc_cube['ShiftedWavelength'] = measured_wls[1:-1]
                     self.cube.update(current_lc_cube)
 
         if verbose:
-            print(f'Done warping SED for {self.sn.name}')
+            logger.info(f'Done warping SED for {self.sn.name}')
 
         if save:
             self.cube.to_csv(
