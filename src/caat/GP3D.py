@@ -23,6 +23,7 @@ from .Plot import Plot
 from .Diagnostics import Diagnostic
 from .DataCube import DataCube
 from .SNCollection import SNCollection, SNType
+from .SNModel import SNModel
 from caat.utils import colors
 import logging
 
@@ -602,6 +603,32 @@ class GP3D(GP):
                     )
 
         return pd.DataFrame(residuals)
+    
+    def build_test_wavelength_phase_grid_from_photometry(self, measured_wavelengths, measured_phases, wl_grid, phase_grid):
+        """
+        Function to build a uniform grid of wavelengths and phases given photometry
+        in the form of measured wavelengths and phases as well as a wavelength and phase grid
+        corresponding to the template SED grid
+        """
+        if self.log_transform is not None:
+            waves_to_predict = np.unique(measured_wavelengths)
+            diffs = abs(
+                np.subtract.outer(10**wl_grid, 10**waves_to_predict)
+            )  # The difference between our measurement wavelengths and the wl grid
+
+        else:
+            waves_to_predict = np.unique(measured_wavelengths)
+            diffs = abs(np.subtract.outer(wl_grid, waves_to_predict))
+
+        phases_to_predict = np.unique(measured_phases)
+
+        ### Compare the wavelengths of our measured filters to those in the wl grid
+        ### and fit for those grid wls that are within 500 A of one of our measurements
+        wl_inds_fitted = np.unique(np.where((diffs < 500.0))[0])
+        phase_inds_fitted = np.unique(np.where((phase_grid >= min(phases_to_predict)) & (phase_grid <= max(phases_to_predict)))[0])
+        x, y = np.meshgrid(phase_grid[phase_inds_fitted], wl_grid[wl_inds_fitted])
+        
+        return x, y, wl_inds_fitted, phase_inds_fitted
 
     def run_gp(
         self,
@@ -612,7 +639,8 @@ class GP3D(GP):
         subtract_median=False,
         subtract_polynomial=False,
         interactive=False,
-        run_diagnostics=False
+        run_diagnostics=False,
+        fit_separately=True,
     ):
         """
         Function to run the Gaussian Process Regression
@@ -627,6 +655,7 @@ class GP3D(GP):
         interactive: Flag to interactively choose to include each GP fit to the final median-combined template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
+        fit_separately: Run GPR on each SN separately and return the resulting SED surfaces from each
         """
         if interactive:
             plot = True
@@ -661,6 +690,9 @@ class GP3D(GP):
                 )
             else:
                 raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
+            
+            if not fit_separately:
+                x, y, err = [], [], []
 
             for sn in self.collection.sne:
               
@@ -686,6 +718,14 @@ class GP3D(GP):
                 else:
                     phases_to_fit = residuals["Phase"].values
 
+                if not fit_separately:
+                    if not len(x):
+                        x = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
+                    else:
+                        x = np.concatenate([x, np.vstack((phases_to_fit, residuals["Wavelength"].values)).T])
+                    y = np.concatenate([y, residuals["MagResidual"].values])
+                    err = np.concatenate([err, residuals["MagErr"].values])
+                    continue
 
                 x = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
                 y = residuals["MagResidual"].values
@@ -698,6 +738,12 @@ class GP3D(GP):
 
                     if plot:
                         fig, ax = Plot().create_empty_subplot()
+
+                    ####################################
+                    # If we fit the full SED, replace this block with the
+                    # grid of wavelengths covering the full SED that the SN
+                    # observations probe (e.g. bluest edge of bluest filt to
+                    # reddest edge of reddest filt)
 
                     filts_fitted = []
 
@@ -731,6 +777,8 @@ class GP3D(GP):
                             wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
                         else:
                             wl_ind = np.argmin(abs(wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
+
+                        # If making above changes, then wl_ind here should be closest wavelength to the current SED wavelength
                         
                         template_mags = []
                         if self.log_transform is not False:
@@ -768,6 +816,9 @@ class GP3D(GP):
                         ]
                         if len(inds_to_fit) > 0:
                             filts_fitted.append(filt)
+
+                            # If making the above changes, we want to integrate the GP-predicted SED over the 
+                            # current filter transmission function to get the GP-predicted LC in that band
 
                             if plot:
                                 key_to_plot = "flux" if self.use_fluxes else "mag"
@@ -817,27 +868,15 @@ class GP3D(GP):
 
                         if (subtract_median or subtract_polynomial) and interactive:
                             use_for_template = input("Use this fit to construct a template? y/n")
+                    
+                    ####################################
+
+                    # If making the changes in the above block, do we need to rerun the `gaussian_process.predict` here?
 
                     if subtract_median or subtract_polynomial:
-
-                        if self.log_transform is not None:
-                            waves_to_predict = np.unique(residuals["Wavelength"].values)
-                            diffs = abs(
-                                np.subtract.outer(10**wl_grid, 10**waves_to_predict)
-                            )  # The difference between our measurement wavelengths and the wl grid
-
-                        else:
-                            waves_to_predict = np.unique(residuals["Wavelength"].values)
-                            diffs = abs(np.subtract.outer(wl_grid, waves_to_predict))
-
-                        phases_to_predict = np.unique(residuals["Phase"].values)
-
-                        ### Compare the wavelengths of our measured filters to those in the wl grid
-                        ### and fit for those grid wls that are within 500 A of one of our measurements
-                        wl_inds_fitted = np.unique(np.where((diffs < 500.0))[0])
-                        phase_inds_fitted = np.unique(np.where((phase_grid >= min(phases_to_predict)) & (phase_grid <= max(phases_to_predict)))[0])
-                        x, y = np.meshgrid(phase_grid[phase_inds_fitted], wl_grid[wl_inds_fitted])
-
+                        x, y, wl_inds_fitted, phase_inds_fitted = self.build_test_wavelength_phase_grid_from_photometry(
+                            residuals["Wavelength"].values, residuals["Phase"].values, wl_grid, phase_grid
+                        )
                         try:
                             test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
                         except Exception as e:
@@ -878,7 +917,7 @@ class GP3D(GP):
 
                         gp_grid = np.empty((len(wl_grid), len(phase_grid)))
                         gp_grid[:] = np.nan
-                        for i, col in enumerate(test_prediction_reshaped[:,]):
+                        for i, col in enumerate(test_prediction_smoothed[:,]):
                             current_wl_grid_ind = wl_inds_fitted[i]
                             for j in range(len(col)):
                                 current_phase_grid_ind = phase_inds_fitted[j]
@@ -922,6 +961,46 @@ class GP3D(GP):
             #if not subtract_median and not subtract_polynomial: 
             #    return gaussian_processes, phase_grid, wl_grid
             #return None, phase_residuals, kernel_params
+
+            if not fit_separately:
+                gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+                gaussian_process.fit(x, y)
+
+                x, y, wl_inds_fitted, phase_inds_fitted = self.build_test_wavelength_phase_grid_from_photometry(
+                    x[:,1], x[:,0], wl_grid, phase_grid
+                )
+
+                test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
+
+                template_mags = []
+                for wl_ind in wl_inds_fitted:
+                    for phase_ind in phase_inds_fitted:
+                        template_mags.append(mag_grid[phase_ind, wl_ind])
+
+                template_mags = np.asarray(template_mags).reshape((len(x), -1))
+
+                final_prediction = test_prediction.reshape((len(x), -1)) + template_mags
+                final_std_prediction = std_prediction.reshape((len(x), -1))
+
+                # Plot().plot_run_gp_surface(
+                #     gp_class=self,
+                #     x=np.exp(x)-self.log_transform,
+                #     y=10**(y),
+                #     test_prediction_reshaped=test_prediction.reshape((len(x), -1)) + template_mags,
+                #     use_fluxes=self.use_fluxes,
+                # )
+                Plot().plot_construct_grid(
+                    gp_class=self, 
+                    X=np.exp(x) - self.log_transform, 
+                    Y=10**(y), 
+                    Z=final_prediction, 
+                    Z_lower= final_prediction - 1.96 * (final_std_prediction), 
+                    Z_upper=final_prediction + 1.96 * (final_std_prediction),
+                    grid_type="final", 
+                    use_fluxes=self.use_fluxes
+                )
+                return gaussian_process, phase_grid, None, wl_grid
+            
             return gaussian_processes, phase_grid, kernel_params, wl_grid
 
         else:  # called if we are not fitting to residuals
@@ -952,7 +1031,8 @@ class GP3D(GP):
         set_to_normalize=False,
         subtract_median=False,
         subtract_polynomial=False,
-        run_diagnostics=False
+        run_diagnostics=False,
+        fit_separately=True,
     ):
         """
         Function to predict light curve behavior using Gaussian Process Regression
@@ -968,6 +1048,7 @@ class GP3D(GP):
         median_combine_gps: Flag to median combine the GP fits to each individual SN to create a final median light curve template
         use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
+        fit_separately: Run GPR on each SN separately and return the resulting SED surfaces from each
         """
         if not subtract_median and not subtract_polynomial:
             ### Fitting sample of SNe altogether
@@ -979,6 +1060,7 @@ class GP3D(GP):
                 subtract_polynomial=subtract_polynomial,
                 subtract_median=subtract_median,
                 run_diagnostics=run_diagnostics,
+                fit_separately=fit_separately,
             )
 
             if plot:
@@ -1008,6 +1090,24 @@ class GP3D(GP):
                             use_fluxes=self.use_fluxes,
                         )
 
+        elif not fit_separately:
+            gaussian_process, _, _, _ = self.run_gp(
+                test_size=test_size,
+                plot=plot,
+                fit_residuals=fit_residuals,
+                subtract_polynomial=subtract_polynomial,
+                subtract_median=subtract_median,
+                run_diagnostics=run_diagnostics,
+                fit_separately=fit_separately,
+            )
+            snmodel = SNModel(
+                phase_bounds=(self.phasemin, self.phasemax),
+                filters_fit=self.filtlist,
+                surface=gaussian_process, 
+                sncollection=self.collection
+            )
+            return snmodel
+
         else:
             ### We're fitting each SN individually and then median combining the full 2D GP
             gaussian_processes, phase_grid, _, wl_grid = self.run_gp(
@@ -1017,6 +1117,7 @@ class GP3D(GP):
                 subtract_median=subtract_median,
                 subtract_polynomial=subtract_polynomial,
                 run_diagnostics=run_diagnostics,
+                fit_separately=fit_separately,
             )
 
             median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
