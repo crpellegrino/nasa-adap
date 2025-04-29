@@ -18,7 +18,7 @@ from dustmaps.sfd import SFDQuery
 
 from .CAAT import CAAT
 from .Plot import Plot
-from caat.utils import ROOT_DIR, colors
+from caat.utils import ROOT_DIR, WLE, colors
 import logging
 
 logger = logging.getLogger(__name__)
@@ -54,42 +54,7 @@ class SN:
     #     "c": 389.3,
     # }
 
-    wle = {
-        "u": 3560,
-        "g": 4830,
-        "r": 6260,
-        "i": 7670,
-        "z": 8890,
-        "y": 9600,
-        "w": 5985,
-        "u'": 3560,
-        "g'": 4830,
-        "r'": 6260,
-        "i'": 7670,
-        "z'": 8890,
-        "y'": 9600,
-        "w'": 5985,
-        "Y": 9600,
-        "U": 3600,
-        "B": 4380,
-        "V": 5450,
-        "R": 6410,
-        "G": 6730,
-        "E": 6730,
-        "I": 7980,
-        "J": 12200,
-        "H": 16300,
-        "K": 21900,
-        "UVW2": 2030,
-        "UVM2": 2231,
-        "UVW1": 2634,
-        "F": 1516,
-        "N": 2267,
-        "o": 6790,
-        "c": 5330,
-        "W": 33526,
-        "Q": 46028,
-    }
+    wle = WLE
 
     def __init__(self, name: str = None, data: dict = None):
 
