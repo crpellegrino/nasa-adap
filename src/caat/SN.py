@@ -17,12 +17,8 @@ import astropy.units as u
 from dustmaps.sfd import SFDQuery
 
 from .CAAT import CAAT
-# from .GP import GP, Fitter
-# from .GP3D import GP3D
-# from .Kernels import RBFKernel, WhiteKernel, MaternKernel
 from .Plot import Plot
-# from .SNCollection import SNCollection, SNType
-from caat.utils import ROOT_DIR, colors
+from caat.utils import ROOT_DIR, WLE, colors
 import logging
 
 logger = logging.getLogger(__name__)
@@ -34,7 +30,9 @@ warnings.filterwarnings("ignore")
 class SN:
     """
     A Supernova object, taking a classification (i.e. SN II, SESNe, FBOT, etc.),
-    a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko)
+    a subtype (i.e., SN IIP, SN IIb, SN Ibn, etc.), and a name (i.e. SN2022acko).
+    Provides routines for the extraction and transformation of photometric data
+    that are uniformly run and saved within the `DataCube` class. 
     """
 
     base_path = os.path.join(ROOT_DIR, "data/")
@@ -56,35 +54,7 @@ class SN:
     #     "c": 389.3,
     # }
 
-    wle = {
-        "u": 3560,
-        "g": 4830,
-        "r": 6260,
-        "i": 7670,
-        "z": 8890,
-        "y": 9600,
-        "w": 5985,
-        "Y": 9600,
-        "U": 3600,
-        "B": 4380,
-        "V": 5450,
-        "R": 6410,
-        "G": 6730,
-        "E": 6730,
-        "I": 7980,
-        "J": 12200,
-        "H": 16300,
-        "K": 21900,
-        "UVW2": 2030,
-        "UVM2": 2231,
-        "UVW1": 2634,
-        "F": 1516,
-        "N": 2267,
-        "o": 6790,
-        "c": 5330,
-        "W": 33526,
-        "Q": 46028,
-    }
+    wle = WLE
 
     def __init__(self, name: str = None, data: dict = None):
 
@@ -221,7 +191,7 @@ class SN:
                 self.data.setdefault(row["Filter"], []).append(
                     {
                         "mag": row["3SigMagLim"] + ab_minus_vega[row["Filter"]],
-                        "err": 0.01,
+                        "err": 0.1,
                         "mjd": row["MJD"],
                         "nondetection": True,
                     }
@@ -248,7 +218,7 @@ class SN:
                 for filt, mag_list in d.items():
                     self.data.setdefault(filt, []).extend([mag for mag in mag_list if mag["err"] < 9999])
                     self.data.setdefault(filt, []).extend(
-                        [mag | {"err": 0.01, "nondetection": True} for mag in mag_list if mag["err"] == 9999 and not np.isnan(mag["mag"])]
+                        [mag | {"err": 0.1, "nondetection": True} for mag in mag_list if mag["err"] == 9999 and not np.isnan(mag["mag"])]
                     )
 
     def write_shifted_data(self):
@@ -296,136 +266,38 @@ class SN:
 
             self.shifted_data = shifted_data
 
-    def convert_to_fluxes(self, phasemin=-20, phasemax=50):
-        """
-        Converts the saved photometric magnitudes to fluxes
-        Converts both shifted and unshifted data
-        """
-
-        for filt in self.data:
+    def convert_all_mags_to_fluxes(self):
+        #for data in [self.data, self.shifted_data]:
+        for filt in list(self.data.keys()):
+            new_phot = []
             if filt in self.zps.keys():
+                for phot in self.data[filt]:
+                    phot["flux"] = self.zps[filt] * 1e-11 * 10 ** (-0.4 * phot["mag"])  # * 1e15
+                    phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
+                    new_phot.append(phot)
+                self.data[filt] = new_phot
+            else:
+                # raise Exception(f"No zeropoint information found for filter {filt}")
+                logger.warning(f"No zeropoint information found for filter {filt}")
+                del self.data[filt]
 
-                ### For right now, let's only care about the nondetection closest to
-                ### both the first and last detection
-                detection_mjds = np.asarray([phot["mjd"] for phot in self.data[filt] if not phot.get("nondetection", False)])
-                if len(detection_mjds) > 0:
-                    min_detection = min(detection_mjds)
-                    max_detection = max(detection_mjds)
-
-                    nondetection_mjds = np.asarray([phot["mjd"] for phot in self.data[filt] if phot.get("nondetection", False)])
-                    if len(nondetection_mjds) == 0:
-                        min_nondetection = 9e9
-                        max_nondetection = 9e9
-                    else:
-                        min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
-                        max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
-
-                    new_phot = []
-                    for i, phot in enumerate(self.data[filt]):
-                        if phot.get("nondetection", False):
-                            ### Check if this is the closest nondetection to either
-                            ### the first or last detection in this filter
-                            if abs(phot["mjd"] - min_nondetection) < 0.5 or abs(phot["mjd"] - max_nondetection) < 0.5:
-                                phot["flux"] = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * phot["mag"]))  # * 1e15
-                                phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
-                                new_phot.append(phot)
-                        else:
-                            phot["flux"] = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * phot["mag"]))  # * 1e15
-                            phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
-                            new_phot.append(phot)
-
-                    self.data[filt] = new_phot
-
-                else:
-                    self.data[filt] = []
-
-        if self.shifted_data:
-            ### Get the flux at peak, subtract it from the other fluxes
-            for filt in self.shifted_data:
-                if filt in self.zps.keys():
-
-                    ### For right now, let's only care about the nondetection closest to
-                    ### both the first and last detection
-
-                    ### Here we can be a bit more careful and only pick the max/min detection within
-                    ### a certain window around the time of peak, to avoid picking i.e. a max detection
-                    ### that was spurious and occured a year after the SN
-                    detection_mjds = np.asarray(
-                        [
-                            phot["mjd"]
-                            for phot in self.shifted_data[filt]
-                            if not phot.get("nondetection", False) and phot["mjd"] > phasemin and phot["mjd"] < phasemax
-                        ]
-                    )
-
-                    detection_mags = np.asarray(
-                        [
-                            phot["mag"]
-                            for phot in self.shifted_data[filt]
-                            if not phot.get("nondetection", False) and phot["mjd"] > phasemin and phot["mjd"] < phasemax
-                        ]
-                    )
-                    if len(detection_mjds) > 0:
-                        min_detection = min(detection_mjds)
-                        max_detection = max(detection_mjds)
-                        min_detection_mag = detection_mags[np.where((detection_mjds==min_detection))[0]][0]
-                        max_detection_mag = detection_mags[np.where((detection_mjds==max_detection))[0]][0]
-
-                        # nondetection_mjds = np.asarray([phot["mjd"] for phot in self.shifted_data[filt] if phot.get("nondetection", False)])
-                        # if len(nondetection_mjds) == 0:
-                        #     min_nondetection = 9e9
-                        #     max_nondetection = 9e9
-                        # else:
-                        #     min_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - min_detection))]
-                        #     max_nondetection = nondetection_mjds[np.argmin(abs(nondetection_mjds - max_detection))]
-
-                        new_phot = []
-
-                        for i, phot in enumerate(self.shifted_data[filt]):
-                            if phot.get("nondetection", False):
-                                ### Check if this nondetection is close to either
-                                ### the first or last nondetection in this filter
-                                # #if (phot["mjd"] - min_nondetection < 0.0 and phot["mjd"] - min_nondetection > 0.5) or (phot["mjd"] - max_nondetection < 0.5 and phot["mjd"] - max_nondetection > 0.0):
-                                # if (phot["mjd"] - min_nondetection < 0.0) or (phot["mjd"] - max_nondetection > 0.0):
-                                #     unshifted_mag = phot["mag"] + self.info["peak_mag"]
-                                #     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
-                                #         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
-                                #     )  # * 1e15
-                                #     phot["flux"] = shifted_flux
-                                #     phot["fluxerr"] = phot["err"]
-                                #     new_phot.append(phot)
-
-                                if (
-                                    phot["mjd"] - min_detection < 0.0 and phot["mjd"] - min_detection >= -5.0 and phot["mag"] > min_detection_mag) or (phot["mjd"] - max_detection > 0.0 and phot["mjd"] - max_detection <= 5.0 and phot["mag"] > max_detection_mag):
-                                    unshifted_mag = phot["mag"] + self.info["peak_mag"]
-                                    shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
-                                        self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
-                                    )  # * 1e15
-                                    phot["flux"] = shifted_flux
-                                    phot["fluxerr"] = phot["err"]
-                                    new_phot.append(phot)
-                                
-                                # else:
-                                #     unshifted_mag = phot["mag"] + self.info["peak_mag"]
-                                #     shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
-                                #         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
-                                #     )  # * 1e15
-                                #     phot["flux"] = shifted_flux
-                                #     phot["fluxerr"] = phot["err"] * 10
-                                #     new_phot.append(phot)
-                            else:
-                                unshifted_mag = phot["mag"] + self.info["peak_mag"]
-                                shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
-                                    self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
-                                )  # * 1e15
-                                phot["flux"] = shifted_flux
-                                phot["fluxerr"] = phot["err"]
-                                new_phot.append(phot)
-
-                        self.shifted_data[filt] = new_phot
-
-                    else:
-                        self.shifted_data[filt] = []
+        for filt in list(self.shifted_data.keys()):
+            new_phot = []
+            if filt in self.zps.keys():
+                for phot in self.shifted_data[filt]:
+                    unshifted_mag = phot["mag"] + self.info["peak_mag"]
+                    shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
+                        self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
+                    )  # * 1e15
+                    phot["flux"] = shifted_flux
+                    phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
+                    new_phot.append(phot)
+                self.shifted_data[filt] = new_phot
+            else:
+                # raise Exception(f"No zeropoint information found for filter {filt}")
+                logger.warning(f"No zeropoint information found for filter {filt}")
+                del self.shifted_data[filt]
+            
 
     def correct_for_galactic_extinction(self):
         """
@@ -440,42 +312,42 @@ class SN:
             return
 
         coord = SkyCoord(ra=self.info["ra"] * u.deg, dec=self.info["dec"] * u.deg)
-        exts = fm(
-            np.asarray([self.wle[filt] * (1 + self.info.get("z", 0)) for filt in self.data.keys() if filt in self.wle.keys()]),
-            sfd(coord),
-        )
+        exts = {}
+        for filt in self.data.keys():
+            if filt in self.wle.keys():
+                try:
+                    exts[filt] = fm(self.wle[filt] * (1 + self.info.get("z", 0)), sfd(coord))
+                except:
+                    ### First input needs to be an array
+                    exts[filt] = fm(np.asarray([self.wle[filt] * (1 + self.info.get("z", 0))]), sfd(coord))
 
-        i = 0
         for filt in self.data.keys():
             if filt in self.wle.keys():
 
                 new_phot = []
                 for phot in self.data[filt]:
                     if not phot.get("ext_corrected", False):
-                        phot["mag"] -= exts[i]
+                        phot["mag"] -= exts[filt][0]
                         phot["ext_corrected"] = True
                     new_phot.append(phot)
 
                 self.data[filt] = new_phot
-                i += 1
 
             else:
                 self.data[filt] = []
 
         if self.shifted_data:
-            i = 0
             for filt in self.shifted_data:
                 if filt in self.wle.keys():
 
                     new_phot = []
                     for phot in self.shifted_data[filt]:
                         if not phot.get("ext_corrected", False):
-                            phot["mag"] -= exts[i]
+                            phot["mag"] -= exts[filt][0]
                             phot["ext_corrected"] = True
                         new_phot.append(phot)
 
                     self.shifted_data[filt] = new_phot
-                    i += 1
 
                 else:
                     self.shifted_data[filt] = []
@@ -498,17 +370,17 @@ class SN:
 
         if shifted_data_exists:
             if plot_fluxes:
-                self.convert_to_fluxes()
+                self.convert_all_mags_to_fluxes()
             data_to_plot = self.shifted_data
         elif view_shifted_data:
             for f in filts_to_plot:
                 self.shift_to_max(f, offset=offset)
             if plot_fluxes:
-                self.convert_to_fluxes()
+                self.convert_all_mags_to_fluxes()
             data_to_plot = self.shifted_data
         else:
             if plot_fluxes:
-                self.convert_to_fluxes()
+                self.convert_all_mags_to_fluxes()
             data_to_plot = self.data
 
         Plot().plot_sn_data(
@@ -629,14 +501,17 @@ class SN:
         plot=False,
         offset=0,
         shift_fluxes=False,
-        try_other_filts=True
+        try_other_filts=True,
+        return_wls=False
     ):
 
         if not self.data:
             self.load_swift_data()
             self.load_json_data()
 
-        if filt not in self.data.keys():
+        if filt not in self.data.keys() or filt not in self.wle.keys():
+            if return_wls:
+                return [], [], [], [], []
             return [], [], [], []
 
         if not self.info.get("peak_mjd") and not self.info.get("peak_mag"):
@@ -655,12 +530,15 @@ class SN:
                     self.info["searched"] = True
 
         if not self.info.get("peak_mag", 0) > 0:
+            if return_wls:
+                return [], [], [], [], []
             return [], [], [], []
 
         mjds = np.asarray([phot["mjd"] for phot in self.data[filt]]) - self.info["peak_mjd"]
         mags = np.asarray([phot["mag"] for phot in self.data[filt]]) - self.info["peak_mag"]
         errs = np.asarray([phot["err"] for phot in self.data[filt]])
         nondets = np.asarray([phot.get("nondetection", False) for phot in self.data[filt]])
+        wls = np.asarray([phot.get("wle", self.wle[filt] * (1 + self.info.get("z", 0.0))) for phot in self.data[filt]])
 
         if plot:
             Plot().plot_shift_to_max(sn_class=self, mjds=mjds, mags=mags, errs=errs, nondets=nondets, filt=filt)
@@ -672,20 +550,27 @@ class SN:
                     "mag": mags[i],
                     "err": errs[i],
                     "nondetection": nondets[i],
+                    "wle": wls[i]
                 }
                 for i in range(len(mjds))
             ]
         )
 
         if shift_fluxes:
-            self.convert_to_fluxes()
+            self.convert_all_mags_to_fluxes()
             shifted_mjd = np.asarray([phot["mjd"] for phot in self.shifted_data[filt]])
             shifted_flux = np.asarray([phot["flux"] for phot in self.shifted_data[filt]])
             shifted_err = np.asarray([phot["fluxerr"] for phot in self.shifted_data[filt]])
             nondets = np.asarray([phot.get("nondetection", False) for phot in self.shifted_data[filt]])
+            wls = np.asarray([phot.get("wle", self.wle[filt] * (1 + self.info.get("z", 0.0))) for phot in self.shifted_data[filt]])
 
+            if return_wls:
+                return shifted_mjd, shifted_flux, shifted_err, nondets, wls
             return shifted_mjd, shifted_flux, shifted_err, nondets
 
+
+        if return_wls:
+            return mjds, mags, errs, nondets, wls
         return mjds, mags, errs, nondets
 
     def interactively_fit_for_max(

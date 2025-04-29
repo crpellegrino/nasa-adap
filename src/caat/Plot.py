@@ -263,7 +263,7 @@ class Plot:
         if Z_upper is not None:
             ax.plot_surface(X, Y, Z_upper, color='blue', alpha=0.2)
         ax.set_xlabel("Phase Grid")
-        ax.set_ylabel("Wavelengths [nm]")
+        ax.set_ylabel("Wavelengths [Angstroms]")
 
         if use_fluxes:
             ax.set_zlabel("Flux")
@@ -345,9 +345,7 @@ class Plot:
 
     def plot_run_gp_overlay(
         self,
-        fig,
         ax,
-        gp_class,
         sn_class,
         test_times,
         test_prediction,
@@ -362,10 +360,7 @@ class Plot:
         filt,
         use_fluxes,
         key_to_plot,
-        phasemin,
-        phasemax,
     ):
-        gpc = gp_class
         sn = sn_class
 
         ax.plot(
@@ -385,31 +380,11 @@ class Plot:
         if log_transform is not False:
             ax.errorbar(
                 np.exp(
-                    np.asarray(
-                        [
-                            p["phase_residual"]
-                            for p in residuals[filt]
-                            if p["phase_residual"] > np.log(phasemin + log_transform)
-                            and p["phase_residual"] < np.log(phasemax + log_transform)
-                            and not p["nondetection"]
-                        ]
-                    )
+                    residuals["Phase"].values
                 )
                 - log_transform,
-                [
-                    p["mag"]
-                    for p in residuals[filt]
-                    if p["phase_residual"] > np.log(phasemin + log_transform)
-                    and p["phase_residual"] < np.log(phasemax + log_transform)
-                    and not p["nondetection"]
-                ],
-                yerr=[
-                    p["err_residual"]
-                    for p in residuals[filt]
-                    if p["phase_residual"] > np.log(phasemin + log_transform)
-                    and p["phase_residual"] < np.log(phasemax + log_transform)
-                    and not p["nondetection"]
-                ],
+                residuals["Mag"].values,
+                yerr=residuals["MagErr"].values,
                 fmt="o",
                 color=colors.get(filt, "k"),
                 mec="k",
@@ -417,24 +392,10 @@ class Plot:
 
             ax.scatter(
                 np.exp(
-                    np.asarray(
-                        [
-                            p["phase_residual"]
-                            for p in residuals[filt]
-                            if p["phase_residual"] > np.log(phasemin + log_transform)
-                            and p["phase_residual"] < np.log(phasemax + log_transform)
-                            and p["nondetection"]
-                        ]
-                    )
+                    residuals["Phase"].values
                 )
                 - log_transform,
-                [
-                    p["mag"]
-                    for p in residuals[filt]
-                    if p["phase_residual"] > np.log(phasemin + log_transform)
-                    and p["phase_residual"] < np.log(phasemax + log_transform)
-                    and p["nondetection"]
-                ],
+                residuals["Mag"].values,
                 marker="v",
                 color=colors.get(filt, "k"),
                 alpha=0.5,
@@ -459,7 +420,6 @@ class Plot:
         ax.set_xlabel("Normalized Time [days]")
         plt.title(sn.name)
         plt.legend()
-        # plt.show()
 
     def plot_run_gp_surface(self, gp_class, x, y, test_prediction_reshaped, use_fluxes=False):
         fig = plt.figure()

@@ -5,3 +5,4 @@ diagnostics/*
 **/plot_demo*
 .pylintrc
 **/.pylintrc
+.vscode/*

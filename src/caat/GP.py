@@ -18,10 +18,12 @@ from dustmaps.sfd import SFDQuery
 
 # from .CAAT import CAAT
 # from .GP3D import GP3D
-# from .Kernels import RBFKernel, WhiteKernel, MaternKernel
+from .Kernels import RBFKernel, WhiteKernel, MaternKernel
 from .Plot import Plot
 # from .SN import SN
-# from .SNCollection import SNCollection, SNType
+from .SNCollection import SNCollection, SNType
+from .DataCube import DataCube
+from caat.utils import WLE
 
 warnings.filterwarnings("ignore")
 
@@ -42,45 +44,118 @@ class GP(Fitter):
     GP fit to a single band
     """
 
-    wle = {
-        "u": 3560,
-        "g": 4830,
-        "r": 6260,
-        "i": 7670,
-        "z": 8890,
-        "y": 9600,
-        "w": 5985,
-        "Y": 9600,
-        "U": 3600,
-        "B": 4380,
-        "V": 5450,
-        "R": 6410,
-        "G": 6730,
-        "E": 6730,
-        "I": 7980,
-        "J": 12200,
-        "H": 16300,
-        "K": 21900,
-        "UVW2": 2030,
-        "UVM2": 2231,
-        "UVW1": 2634,
-        "F": 1516,
-        "N": 2267,
-        "o": 6790,
-        "c": 5330,
-        "W": 33526,
-        "Q": 46028,
-    }
+    wle = WLE
 
-    def __init__(self, sne_collection, kernel):
+    def __init__(
+            self, 
+            sne_collection: Union[SNCollection, SNType], 
+            kernel: Union[RBFKernel, WhiteKernel, MaternKernel],
+            filtlist: list,
+            phasemin: int, 
+            phasemax: int, 
+            use_fluxes: bool = False, 
+            log_transform: bool = False
+        ):
+
         super().__init__(sne_collection)
         self.kernel = kernel
+        self.filtlist = filtlist
+        self.use_fluxes = use_fluxes
+        self.log_transform = log_transform
+        self.phasemin = phasemin
+        self.phasemax = phasemax
+
+    def prepare_data(self):
+        """
+        Use the flags set in __init__ to filter the pandas dataframes for each SN
+        in the science and control samples
+        """
+        for sn in self.collection.sne:
+
+            data_cube_filename = os.path.join(
+                sn.base_path,
+                sn.classification,
+                sn.subtype,
+                sn.name,
+                sn.name + "_datacube.csv"
+            )
+            if os.path.exists(data_cube_filename):
+                cube = pd.read_csv(data_cube_filename)
+            else:
+                # For now, we'll just construct it
+                datacube = DataCube(sn=sn)
+                datacube.construct_cube()
+                cube = datacube.cube
+
+            # Drop rows that are out of the phase range
+            inds_to_drop_phase = cube.loc[(cube['Phase'] < self.phasemin) | (cube['Phase'] > self.phasemax)].index
+            cube = cube.drop(inds_to_drop_phase).reset_index(drop=True)
+
+            # Drop nondetections farther than 2 days away from first/last detection
+            try:
+                min_phase = min(cube.loc[cube['Nondetection'] == False]['Phase'].values)
+                inds_to_drop_nondets_before_first_det = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] < (min_phase - 2.0))].index
+                cube = cube.drop(inds_to_drop_nondets_before_first_det).reset_index(drop=True)
+            except ValueError: # no values
+                pass
+
+            try:
+                max_phase = max(cube.loc[cube['Nondetection'] == False]['Phase'].values)
+                inds_to_drop_nondets_after_last_det = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] > (max_phase + 2.0))].index
+                cube = cube.drop(inds_to_drop_nondets_after_last_det).reset_index(drop=True)
+            except ValueError: # no values
+                pass
+
+            # Drop rows corresponding to filters not in the user-provided filter list
+            inds_to_drop_filts = cube.loc[~cube['Filter'].isin(self.filtlist)].index
+            cube = cube.drop(inds_to_drop_filts).reset_index(drop=True)
+
+            # Log transform the data (as a separate column), if desired
+            if self.log_transform is not False:
+                cube['LogPhase'] = np.log(cube['Phase'].values.astype(float) + self.log_transform)
+                cube['LogWavelength'] = np.log10(cube['Wavelength'].values.astype(float))
+                cube['LogShiftedWavelength'] = np.log10(cube['ShiftedWavelength'].values.astype(float))
+            
+            # Drop nondetections that are within the phase range and less constraining
+            # than the first or last detection in each filter
+            try:
+                min_flux_before_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] < 0)]['Flux'].values)
+                inds_to_drop_nondets_before_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] < 0) & (cube['Flux'] > min_flux_before_peak)].index
+                cube = cube.drop(inds_to_drop_nondets_before_peak).reset_index(drop=True)
+            except ValueError: # No values pre-peak, so pass
+                pass
+
+            try:
+                min_flux_after_peak = min(cube.loc[(cube['Nondetection'] == False) & (cube['Phase'] > 0)]['Flux'].values)
+                inds_to_drop_nondets_after_peak = cube.loc[(cube['Nondetection'] == True) & (cube['Phase'] > 0) & (cube['Flux'] > min_flux_after_peak)].index
+                cube = cube.drop(inds_to_drop_nondets_after_peak).reset_index(drop=True)
+            except ValueError: # No values post-peak, so pass
+                pass
+
+            # Drop nondetections between the first and last detection
+            cube_only_dets = cube.loc[cube['Nondetection'] == False]
+            if len(cube_only_dets['Phase'].values) > 0:
+                first_detection = min(cube_only_dets['Phase'].values)
+                last_detection = max(cube_only_dets['Phase'].values)
+                inds_to_drop_nondets_between_dets = cube.loc[
+                    (
+                        cube['Phase'] > first_detection
+                    ) & (
+                        cube['Phase'] < last_detection
+                    ) & (
+                        cube['Nondetection'] == True
+                    )
+                ].index
+                cube = cube.drop(inds_to_drop_nondets_between_dets).reset_index(drop=True)
+            
+            # Construct anchor points
+            # TODO: Implement
+
+            sn.cube = cube
 
     def process_dataset_for_gp(
         self,
         filt,
-        phasemin,
-        phasemax,
         log_transform=False,
         sn_set=None,
         use_fluxes=False,
@@ -99,47 +174,19 @@ class GP(Fitter):
         )
 
         if sn_set is None:
-            sn_set = self.collection.sne
+            sn_set = self.collection
 
-        for sn in sn_set:
+        for sn in sn_set.sne:
 
-            z = sn.info.get("z", 0)
+            current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Phase'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
+            current_mags = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedMag'].values if use_fluxes is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFlux']
+            current_errs = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Magerr'].values if use_fluxes is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Fluxerr'] if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFluxerr']
+            current_wls = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedWavelength'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogShiftedWavelength'].values
 
-            if len(sn.data) == 0:
-                sn.load_swift_data()
-                sn.load_json_data()
-
-            if len(sn.shifted_data) == 0:
-                ### Check to see if we've already tried to fit for maximum
-                if not sn.info:
-                    shifted_mjd = []
-                else:
-                    if sn.info.get('searched', False) and not sn.info.get("peak_mag", 0) > 0:
-                        shifted_mjd = []
-                    else:
-                        shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
-
-            else:
-                ### We already successfully fit for peak, so get the shifted photometry for this filter
-                shifted_mjd, shifted_mag, err, nondets = sn.shift_to_max(filt, shift_fluxes=use_fluxes)
-
-            if len(shifted_mjd) > 0:
-
-                if log_transform is not False:
-                    shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=log_transform)
-
-                if log_transform is not False:
-                    inds_to_fit = np.where((shifted_mjd > np.log(phasemin + log_transform)) & (shifted_mjd < np.log(phasemax + log_transform)))[0]
-                else:
-                    inds_to_fit = np.where((shifted_mjd > phasemin) & (shifted_mjd < phasemax))[0]
-
-                phases = np.concatenate((phases, shifted_mjd[inds_to_fit]))
-                mags = np.concatenate((mags, shifted_mag[inds_to_fit]))
-                errs = np.concatenate((errs, err[inds_to_fit]))
-                if log_transform is not False:
-                    wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * np.log10(self.wle[filt] * (1 + z))))
-                else:
-                    wls = np.concatenate((wls, np.ones(len(inds_to_fit)) * self.wle[filt] * (1 + z)))
+            phases = np.concatenate((phases, current_phases))
+            mags = np.concatenate((mags, current_mags))
+            errs = np.concatenate((errs, current_errs))
+            wls = np.concatenate((wls, current_wls))
 
         return (
             phases.reshape(-1, 1),
@@ -148,9 +195,11 @@ class GP(Fitter):
             wls.reshape(-1, 1),
         )
 
-    def run_gp(self, filt, phasemin, phasemax, test_size, log_transform=False, sn_set=None, use_fluxes=False):
+    def run_gp(self, filt, test_size):
 
-        phases, mags, errs, _ = self.process_dataset_for_gp(filt, phasemin, phasemax, log_transform=log_transform, sn_set=sn_set, use_fluxes=use_fluxes)
+        self.prepare_data()
+
+        phases, mags, errs, _ = self.process_dataset_for_gp(filt, log_transform=self.log_transform, sn_set=self.collection, use_fluxes=self.use_fluxes)
         X_train, _, Y_train, _, Z_train, _ = train_test_split(phases, mags, errs, test_size=test_size)
 
         ### Get array of errors at each timestep
@@ -178,9 +227,9 @@ class GP(Fitter):
 
         return gaussian_process, phases, mags, errs
 
-    def predict_gp(self, filt, phasemin, phasemax, test_size, plot=False, use_fluxes=False):
+    def predict_gp(self, filt, test_size, plot=False):
 
-        gaussian_process, phases, mags, errs = self.run_gp(filt, phasemin, phasemax, test_size, use_fluxes=use_fluxes)
+        gaussian_process, phases, mags, errs = self.run_gp(filt, test_size)
 
         mean_prediction, std_prediction = gaussian_process.predict(sorted(phases), return_std=True)
 
@@ -193,5 +242,4 @@ class GP(Fitter):
                 mags=mags,
                 errs=errs,
                 filt=filt,
-                use_fluxes=use_fluxes,
             )
