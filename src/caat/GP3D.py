@@ -626,7 +626,6 @@ class GP3D(GP):
     def run_gp_on_full_sample(
         self,
         plot=False,
-        set_to_normalize=None,
         subtract_median=False,
         subtract_polynomial=False,
     ):
@@ -635,11 +634,10 @@ class GP3D(GP):
         ===============================================
         Takes as input:
         plot: Optional flag to plot fits and intermediate figures
-        set_to_normalize: Flag to provide a SNCollection object to construct a "template" grid
         subtract_median: Flag to calculate residuals by subtracting the SN magnitude/flux from a median template grid
         subtract_polynomial: Flag to calculate residuals by subtracting the SN magnitude/flux from a polynomial template grid
         """
-        template_df = self.process_dataset_for_gp_3d(set_to_normalize=set_to_normalize)
+        template_df = self.process_dataset_for_gp_3d(set_to_normalize=self.set_to_normalize)
 
         if subtract_polynomial:
             phase_grid, wl_grid, mag_grid, err_grid = self.construct_polynomial_grid(
@@ -716,13 +714,6 @@ class GP3D(GP):
             final_prediction = test_prediction.reshape((len(x), -1)) + template_mags
             final_std_prediction = std_prediction.reshape((len(x), -1))
 
-            # Plot().plot_run_gp_surface(
-            #     gp_class=self,
-            #     x=np.exp(x)-self.log_transform,
-            #     y=10**(y),
-            #     test_prediction_reshaped=test_prediction.reshape((len(x), -1)) + template_mags,
-            #     use_fluxes=self.use_fluxes,
-            # )
             Plot().plot_construct_grid(
                 gp_class=self, 
                 X=np.exp(x) - self.log_transform, 
@@ -733,13 +724,12 @@ class GP3D(GP):
                 grid_type="final", 
                 use_fluxes=self.use_fluxes
             )
-            return gaussian_process, phase_grid, None, wl_grid
+            return gaussian_process, mag_grid, phase_grid, wl_grid
 
 
     def run_gp_individually(
         self,
         plot=False,
-        set_to_normalize=None,
         subtract_median=False,
         subtract_polynomial=False,
         interactive=False,
@@ -750,7 +740,6 @@ class GP3D(GP):
         ===============================================
         Takes as input:
         plot: Optional flag to plot fits and intermediate figures
-        set_to_normalize: Flag to provide a SNCollection object to construct a "template" grid
         subtract_median: Flag to calculate residuals by subtracting the SN magnitude/flux from a median template grid
         subtract_polynomial: Flag to calculate residuals by subtracting the SN magnitude/flux from a polynomial template grid
         interactive: Flag to interactively choose to include each GP fit to the final median-combined template
@@ -759,7 +748,7 @@ class GP3D(GP):
         if interactive:
             plot = True
 
-        template_df = self.process_dataset_for_gp_3d(set_to_normalize=set_to_normalize)
+        template_df = self.process_dataset_for_gp_3d(set_to_normalize=self.set_to_normalize)
         kernel_params = []
         gaussian_processes = []
 
@@ -1046,7 +1035,6 @@ class GP3D(GP):
     def predict_gp(
         self,
         plot=False,
-        set_to_normalize=False,
         subtract_median=False,
         subtract_polynomial=False,
         run_diagnostics=False,
@@ -1056,35 +1044,45 @@ class GP3D(GP):
         Function to predict light curve behavior using Gaussian Process Regression
         ===============================================
         Takes as input:
-        filtlist: A list of filters to fit the data of
-        phasemin and phasemax: Endpoints of the phase range to fit
         plot: Optional flag to plot fits and intermediate figures
-        log_transform: Flag to log-transform the phases (natural log) and wavelengths (log base 10)
-        set_to_normalize: Flag to provide a SNCollection object to construct a "template" grid
-        median_combine_gps: Flag to median combine the GP fits to each individual SN to create a final median light curve template
-        use_fluxes: Flag to fit in fluxes (or flux residuals), rather than magnitudes
+        subtract_median: Flag to calculate residuals by subtracting the SN magnitude/flux from a median template grid
+        subtract_polynomial: Flag to calculate residuals by subtracting the SN magnitude/flux from a polynomial template grid
         run_diagnostics: Flag to run diagnostic tests to ensure reasonable fits
         fit_separately: Run GPR on each SN separately and return the resulting SED surfaces from each
         """
         if not fit_separately:
-            gaussian_process = self.run_gp_on_full_sample(
+            gaussian_process, template_mags, phase_grid, wl_grid = self.run_gp_on_full_sample(
                 plot=plot,
                 subtract_polynomial=subtract_polynomial,
                 subtract_median=subtract_median,
             )
-            snmodel = SNModel(
-                phase_bounds=(self.phasemin, self.phasemax),
-                filters_fit=self.filtlist,
-                surface=gaussian_process, 
-                sncollection=self.collection
-            )
+            if self.log_transform is not False:
+                snmodel = SNModel(
+                    phase_grid=np.exp(phase_grid) - self.log_transform,
+                    wl_grid=10**wl_grid,
+                    filters_fit=self.filtlist,
+                    surface=gaussian_process,
+                    template_mags=template_mags,
+                    sncollection=self.collection,
+                    norm_set=self.set_to_normalize,
+                    log_transform=self.log_transform
+                )
+            else:
+                snmodel = SNModel(
+                    phase_grid=phase_grid,
+                    wl_grid=wl_grid,
+                    filters_fit=self.filtlist,
+                    surface=gaussian_process,
+                    template_mags=template_mags,
+                    sncollection=self.collection,
+                    norm_set=self.set_to_normalize,
+                )
             return snmodel
 
         else:
             ### We're fitting each SN individually and then median combining the full 2D GP
             gaussian_processes, phase_grid, _, wl_grid = self.run_gp_individually(
                 plot=plot,
-                set_to_normalize=set_to_normalize,
                 subtract_median=subtract_median,
                 subtract_polynomial=subtract_polynomial,
                 run_diagnostics=run_diagnostics,
