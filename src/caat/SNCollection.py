@@ -39,7 +39,7 @@ class SNCollection:
 
     def __init__(
         self,
-        names: Union[str, None] = None,
+        names: Union[str, list, None] = None,
         sntype: Union[str, None] = None,
         snsubtype: Union[str, None] = None,
         SNe: Union[list[SN], None] = None,

@@ -2,6 +2,8 @@ import os
 import pickle
 import matplotlib.pyplot as plt
 import numpy as np
+from astropy.io import fits
+from scipy.interpolate import RegularGridInterpolator
 from sklearn.gaussian_process import GaussianProcessRegressor
 
 from .DataCube import DataCube
@@ -14,6 +16,43 @@ import logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
+class SurfaceArray:
+    """ 
+    Class to handle a final SED surface that is a numpy array,
+    rather than a GaussianProcessRegressor object.
+    This is to accomodate the user story of median combining multiple
+    GP SEDs generated from individual objects.
+
+    Contains a `predict` method that is called with the same inputs as the 
+    `GaussianProcessRegressor.predict` method, so that both can objects
+    can be used interchangeably.
+    """
+    def __init__(self, surface: np.ndarray, phase_grid: np.ndarray, wl_grid: np.ndarray):
+        self.surface = surface[0]
+        self.iqr = surface[1]
+
+        self.phase_grid = phase_grid
+        self.wl_grid = wl_grid
+
+    def predict(self, input: np.ndarray, return_std: bool = False):
+        """
+        Predict a light curve or SED from the SurfaceArray.
+        Analogous to the `GaussianProcessRegressor.predict` method
+        """
+        # Interpolate over the surface
+        interp = RegularGridInterpolator((self.phase_grid, self.wl_grid), self.surface.T)
+        result = interp(input)
+
+        if not return_std:
+            return result
+        
+        interp_std = RegularGridInterpolator((self.phase_grid, self.wl_grid), self.iqr.T)
+        std = interp_std(input)
+
+        return result, std
+
+
 class SNModel:
     """
     A Supernova Model object. Saves the outputted 3D SED surface from the
@@ -23,8 +62,8 @@ class SNModel:
     """
     def __init__(
         self, 
-        surface: GaussianProcessRegressor | str | None = None, 
-        template_mags: np.ndarray | str | None = None,
+        surface: GaussianProcessRegressor | str | SurfaceArray | None = None, 
+        template_mags: np.ndarray | None = None,
         phase_grid: np.ndarray | None = None,
         phase_bounds: tuple | None = None,
         wl_grid: np.ndarray| None = None,
@@ -33,56 +72,55 @@ class SNModel:
         sncollection: SNType | SNCollection | None = None,
         norm_set: SNType | SNCollection | None = None,
         log_transform: int | float | bool = False
-    ):
-        if not sn and not sncollection:
-            raise ValueError("Need to specify either a SN or SNCollection for this model!")
-        
+    ):  
         self.base_path = os.path.join(ROOT_DIR, "data/final_models/")
-
-        if sn:
-            self.sn = sn
-        if sncollection:
-            self.collection = sncollection
-        if norm_set:
-            self.norm_set = norm_set
         
         if type(surface) == str:
-            self.load_gp(surface)
+            ### This will load everything from the fits file
+            self.load_from_fits(surface)
+        
         else:
+            if not sn and not sncollection:
+                raise ValueError("Need to specify either a SN or SNCollection for this model!")
+            
+            if sn:
+                self.sn = sn
+            if sncollection:
+                self.collection = sncollection
+            if norm_set:
+                self.norm_set = norm_set
+            
             self.surface = surface
-
-        if type(template_mags) == str:
-            self.load_template(template_mags)
-        else:
             self.template = template_mags
         
-        if phase_grid is None and phase_bounds is not None and self.template is not None:
-            self.phase_grid = np.linspace(phase_bounds[0], phase_bounds[1], self.template.shape[0])
-            self.min_phase, self.max_phase = phase_bounds
-        else:
-            self.phase_grid = phase_grid
-            self.min_phase, self.max_phase = int(min(phase_grid)), int(max(phase_grid))
+            if phase_grid is None and phase_bounds is not None and self.template is not None:
+                self.phase_grid = np.linspace(phase_bounds[0], phase_bounds[1], self.template.shape[0])
+                self.min_phase, self.max_phase = phase_bounds
+            else:
+                self.phase_grid = phase_grid
+                self.min_phase, self.max_phase = int(min(phase_grid)), int(max(phase_grid))
 
-        if wl_grid is None and filters_fit is not None and self.template is not None:
-            self.wl_grid = np.linspace(
-                min(WLE[f] for f in filters_fit) - 500,
-                max(WLE[f] for f in filters_fit) + 500,
-                self.template.shape[1],
-            )
-        else:
-            self.wl_grid = wl_grid
-        self.min_wl, self.max_wl = int(min(self.wl_grid)), int(max(self.wl_grid))
-        self.filters = filters_fit
-        
-        self.log_transform = log_transform
+            if wl_grid is None and filters_fit is not None and self.template is not None:
+                self.wl_grid = np.linspace(
+                    min(WLE[f] for f in filters_fit) - 500,
+                    max(WLE[f] for f in filters_fit) + 500,
+                    self.template.shape[1],
+                )
+            else:
+                self.wl_grid = wl_grid
+            self.min_wl, self.max_wl = int(min(self.wl_grid)), int(max(self.wl_grid))
+            self.filters = filters_fit
+            
+            self.log_transform = log_transform
 
-    def save_gp(self, filename: str = None):
+    def save_fits(self, filename: str = None, force: bool = False):
         if not self.surface:
             logger.warning("Need to instantiate the SNModel class with a GP model to save it!")
             return
+        
         if not filename:
             try:
-                filename = f"{self.sn.name}_GP_model_{self.min_phase}_{self.max_phase}_{''.join(filt for filt in self.filters)}.pkl"
+                filename = f"{self.sn.name}_GP_model.fits"
             except:
                 filename = ''
                 if hasattr(self.collection, "type"):
@@ -92,58 +130,62 @@ class SNModel:
                 else:
                     filename += f"{', '.join(sn.name for sn in self.collection.sne)}"
                 
-                filename += f"_GP_model_{self.min_phase}_{self.max_phase}_{','.join(filt for filt in self.filters)}.pkl"
+                filename += "_GP_model.fits"
 
-        with open(os.path.join(self.base_path, filename), 'wb') as f:
-            pickle.dump(self.surface, f)
+        # Save the GP model, template grid, phase grid, and wavelength grid  
+        # as fits HDUs
+        model_bytes = pickle.dumps(self.surface)
+        model_array = np.frombuffer(model_bytes, dtype=np.uint8)
+        model_array = model_array.reshape((1, -1))
+        model_hdu = fits.PrimaryHDU(model_array)
+        model_hdu.header["FILTERS_FIT"] = ",".join(self.filters)
+        model_hdu.header["LOG_TRANSFORM"] = self.log_transform
+        if hasattr(self, "sn"):
+            model_hdu.header["OBJECTS"] = self.sn.name 
+        else:
+            model_hdu.header["OBJECTS"] = ",".join([sn.name for sn in self.collection.sne])
+        model_hdu.header["NORM_SET"] = ",".join([sn.name for sn in self.norm_set.sne])
 
-    def save_template(self, filename: str = None):
-        if self.template is None:
-            logger.warning("Need to instantiate the SNModel class with template mags to save it!")
-            return
-        if not filename:
-            filename = ''
-            if hasattr(self.norm_set, "type"):
-                filename += self.norm_set.type
-                if hasattr(self.norm_set, "subtype"):
-                    filename += f"_{self.norm_set.subtype}"
-            else:
-                filename += f"{', '.join(sn.name for sn in self.norm_set.sne)}"
-            
-            filename += f"_template_{self.min_phase}_{self.max_phase}_{','.join(filt for filt in self.filters)}.csv"
+        template_hdu = fits.ImageHDU(self.template, name="TEMPLATE")
 
-        np.savetxt(os.path.join(self.base_path, filename), self.template, delimiter=",")
+        phase_array = self.phase_grid
+        phase_hdu = fits.ImageHDU(phase_array, name="PHASE ARRAY")
 
-    def load_gp(self, filename: str):
-        """
-        Load a GPR object from a saved file
-        """
-        if not os.path.exists(os.path.join(self.base_path, filename)):
-            raise ValueError("No model file exists by that name!")
+        wavelength_array = self.wl_grid
+        wavelength_hdu = fits.ImageHDU(wavelength_array, name="WAVELENGTH ARRAY")
         
-        with open(os.path.join(self.base_path, filename), 'rb') as f:
-            surface = pickle.load(f)
+        hdul = fits.HDUList([model_hdu, template_hdu, phase_hdu, wavelength_hdu])
+        hdul.writeto(os.path.join(self.base_path, filename), overwrite=force)
+        hdul.close()
 
-        if hasattr(self, "surface") and self.surface is not None:
-            # Warn that we're overwriting the existing model
-            logger.warning("Overwriting existing GP model")
+    def load_from_fits(self, filename: str):
+        with fits.open(os.path.join(self.base_path, filename)) as hdul:
+            surface = pickle.loads(hdul[0].data)
+            log_transform = hdul[0].header["LOG_TRANSFORM"]
+            filters_fit = hdul[0].header["FILTERS_FIT"]
+            object_names = hdul[0].header["OBJECTS"]
+            norm_set_names = hdul[0].header["NORM_SET"]
+            
+            template = hdul[1].data
+            phase_grid = hdul[2].data
+            wl_grid = hdul[3].data
 
         self.surface = surface
-
-    def load_template(self, filename: str):
-        """
-        Load a grid of template magnitudes from a saved file
-        """
-        if not os.path.exists(os.path.join(self.base_path, filename)):
-            raise ValueError("No model file exists by that name!")
-        
-        template = np.genfromtxt(os.path.join(self.base_path, filename), delimiter=",")
-
-        if hasattr(self, "template") and self.template is not None:
-            # Warn that we're overwriting the existing template
-            logger.warning("Overwriting existing tempalte grid")
-
         self.template = template
+        self.phase_grid = phase_grid
+        self.min_phase, self.max_phase = min(phase_grid), max(phase_grid)
+        self.wl_grid = wl_grid
+        self.min_wl, self.max_wl = min(wl_grid), max(wl_grid)
+
+        self.log_transform = log_transform
+        self.filters = filters_fit
+        if "," not in object_names:
+            # Only one object in our sample, so load it as a SN object
+            self.sn = SN(name=object_names)
+        else:
+            self.collection = SNCollection(names=object_names.split(","))
+        
+        self.norm_set = SNCollection(names=norm_set_names.split(","))
     
     def predict_lightcurve(self, phase_min, phase_max, wavelength, show=True):
         # Predict a light curve
@@ -165,12 +207,16 @@ class SNModel:
         prediction, dev = self.surface.predict(np.vstack((phases, waves)).T, return_std=True)
         
         # Add back on template mag for the correct phase and wavelength inds
-        template_lc = []
-        wl_ind = np.argmin((abs(self.wl_grid - wavelength)))
-        for i in range(len(phases)):
-            phase_ind = np.argmin((abs(self.phase_grid - linear_phases[i])))
-            template_lc.append(self.template[phase_ind, wl_ind])
-        template_lc = np.asarray(template_lc)
+        if self.template is not None:
+            template_lc = []
+            wl_ind = np.argmin((abs(self.wl_grid - wavelength)))
+            for i in range(len(phases)):
+                phase_ind = np.argmin((abs(self.phase_grid - linear_phases[i])))
+                template_lc.append(self.template[phase_ind, wl_ind])
+            template_lc = np.asarray(template_lc)
+
+        else:
+            template_lc = np.zeros(len(prediction))
 
         plt.plot(linear_phases, prediction + template_lc)
         plt.plot(linear_phases, prediction + template_lc - dev, alpha=0.2, color='blue')
@@ -284,12 +330,15 @@ class SNModel:
         prediction, dev = self.surface.predict(np.vstack((phases, waves)).T, return_std=True)
 
         # Add back on template mag for the correct phase and wavelength inds
-        template_lc = []
-        phase_ind = np.argmin((abs(self.phase_grid - phase)))
-        for i in range(len(waves)):
-            wl_ind = np.argmin((abs(self.wl_grid - linear_waves[i])))
-            template_lc.append(self.template[phase_ind, wl_ind])
-        template_lc = np.asarray(template_lc)
+        if self.template is not None:
+            template_lc = []
+            phase_ind = np.argmin((abs(self.phase_grid - phase)))
+            for i in range(len(waves)):
+                wl_ind = np.argmin((abs(self.wl_grid - linear_waves[i])))
+                template_lc.append(self.template[phase_ind, wl_ind])
+            template_lc = np.asarray(template_lc)
+        else:
+            template_lc = np.zeros(len(prediction))
 
         plt.plot(linear_waves, prediction + template_lc)
         plt.plot(linear_waves, prediction + template_lc - dev, alpha=0.2, color='blue')

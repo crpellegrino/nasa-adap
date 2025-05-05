@@ -23,7 +23,7 @@ from .Plot import Plot
 from .Diagnostics import Diagnostic
 from .DataCube import DataCube
 from .SNCollection import SNCollection, SNType
-from .SNModel import SNModel
+from .SNModel import SNModel, SurfaceArray
 from caat.utils import colors
 import logging
 
@@ -1118,3 +1118,30 @@ class GP3D(GP):
                 grid_type="final", 
                 use_fluxes=self.use_fluxes
             )
+
+            surface = SurfaceArray(
+                surface = np.asarray([median_gp, iqr_grid]),
+                phase_grid=phase_grid,
+                wl_grid = wl_grid
+            )
+            if self.log_transform is not False:
+                snmodel = SNModel(
+                    surface=surface,
+                    phase_grid=np.exp(phase_grid)-self.log_transform,
+                    wl_grid=10**(wl_grid),
+                    filters_fit=self.filtlist,
+                    sncollection=self.collection,
+                    norm_set=self.set_to_normalize,
+                    log_transform=self.log_transform
+                )
+            else:
+                snmodel = SNModel(
+                    surface=surface,
+                    phase_grid=phase_grid,
+                    wl_grid=wl_grid,
+                    filters_fit=self.filtlist,
+                    sncollection=self.collection,
+                    norm_set=self.set_to_normalize,
+                )
+                
+            return snmodel
