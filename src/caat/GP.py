@@ -24,6 +24,10 @@ from .Plot import Plot
 from .SNCollection import SNCollection, SNType
 from .DataCube import DataCube
 from caat.utils import WLE
+import logging
+
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 warnings.filterwarnings("ignore")
 
@@ -194,6 +198,65 @@ class GP(Fitter):
             errs.reshape(-1, 1),
             wls.reshape(-1, 1),
         )
+    
+
+    def process_sed_dataset_for_gp(
+        self,
+        filt,
+        log_transform=False,
+        sn_set=None,
+        use_fluxes=False,
+    ):
+        """
+        TODO: Documentation
+        """
+
+        phases, mags, errs, wls = (
+            [],
+            [],
+            [],
+            []
+        )
+
+        if sn_set is None:
+            sn_set = self.collection
+
+        try:
+
+            for sn in sn_set.sne:
+
+                if not sn.info.get("peak_filt"):
+                    continue
+
+                peak_flux = max(sn.seds[sn.seds["Flux"] < 1e-10]["Flux"])
+
+                current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Phase'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
+                for phase in current_phases:
+                    if log_transform is not False:
+                        linear_phase = np.exp(phase) - log_transform
+                        current_sed = sn.seds[abs(sn.seds["Phase"] - linear_phase) < 0.5]
+                    else:
+                        current_sed = sn.seds[abs(sn.seds["Phase"] - phase) < 0.5]
+                    for _, row in current_sed.iterrows():
+                        phases.append(phase)
+                        if log_transform is not False:
+
+                            shifted_flux = np.log10(row["Flux"] / peak_flux)
+                            mags.append(shifted_flux)
+                            errs.append(row["FluxErr"])
+                            wls.append(np.log10(row["ShiftedWavelength"]))
+                        else:
+                            wls.append(row["ShiftedWavelength"])
+                            mags.append(row["Flux"])
+                            errs.append(row["FluxErr"])
+
+
+            return np.asarray(phases), np.asarray(mags), np.asarray(errs), np.asarray(wls)
+        
+        except Exception as e: # TODO: remove this block once all data is processed for science and normalization sets
+            logger.warning('Ran into an exception', exc_info=e)
+            phases, mags, errs, wls = self.process_dataset_for_gp(filt, log_transform=log_transform, sn_set=sn_set, use_fluxes=use_fluxes)
+            return phases, mags, errs, wls
 
     def run_gp(self, filt, test_size):
 

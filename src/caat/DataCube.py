@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 from caat import SN
 from caat.utils import query_svo_service, bin_spec, FILT_TEL_CONVERSION
 import logging
+from astropy.io import fits
+from astropy.table import Table
 from scipy.interpolate import interp1d
 import pandas as pd
 import os
@@ -209,9 +211,10 @@ class DataCube:
             self, 
             niter: int = 100,
             convergence_threshold: float = 1.1,
+            warp_full_sed: bool = False,
             plot: bool = False, 
             verbose: bool = False,
-            save: bool = False
+            save: bool = False,
         ):
 
         #TODO: Diagnostics on observed photometry versus mangled photometry
@@ -221,17 +224,26 @@ class DataCube:
             logger.error("Convergence threshold must be greater than 1")
             return
 
-        if save and os.path.exists(
-            os.path.join(
-                    self.sn.base_path,
-                    self.sn.classification,
-                    self.sn.subtype,
-                    self.sn.name,
-                    self.sn.name + "_datacube_mangled.csv",
-            )
-        ):
-            logger.warning(f"Already saved mangled datacube for {self.sn.name}, skipping")
-            return
+        if save:
+            if (not warp_full_sed and os.path.exists(
+                os.path.join(
+                        self.sn.base_path,
+                        self.sn.classification,
+                        self.sn.subtype,
+                        self.sn.name,
+                        self.sn.name + "_datacube_mangled.csv",
+                )
+            )) or (warp_full_sed and os.path.exists(
+                os.path.join(
+                        self.sn.base_path,
+                        self.sn.classification,
+                        self.sn.subtype,
+                        self.sn.name,
+                        self.sn.name + "_datacube_mangled.fits",
+                )
+            )):
+                logger.warning(f"Already saved mangled datacube for {self.sn.name}, skipping")
+                return
 
         self.construct_cube()
 
@@ -262,6 +274,8 @@ class DataCube:
         inds_to_drop = self.cube.loc[self.cube['Filter'].isin(filts_to_ignore)].index
         self.cube = self.cube.drop(inds_to_drop).reset_index(drop=True)
 
+        if warp_full_sed:
+            full_warped_seds = []
         for phase in np.arange(min(self.cube['Phase']), max(self.cube['Phase']), 1.0):
             current_lc_inds = np.where((abs(self.cube['Phase'] - phase) <= 0.5))[0]
 
@@ -362,6 +376,10 @@ class DataCube:
                             residual_interp = interp1d(measured_wls, np.concatenate(([0.0], residuals, [residuals[-1]/2])))
                             residual = residual_interp(wl_grid)
                             binned_sed /= residual
+
+                            if warp_full_sed:
+                                err_interp = interp1d(measured_wls, current_lc_err)
+                                binned_err = err_interp(wl_grid)
                             
                             n += 1
                             if any(errors > 1e3) or any(np.isinf(errors)):
@@ -377,21 +395,65 @@ class DataCube:
                     plt.show()
 
                 if n < niter:
+
                     ### Put the new effective wavelengths back into the data cube in the right spots
                     current_lc_cube['Wavelength'] = measured_wls[1:-1]
                     current_lc_cube['ShiftedWavelength'] = measured_wls[1:-1]
                     self.cube.update(current_lc_cube)
 
+                    if warp_full_sed:
+                        ### Add the warped SED and errors to the new cube
+                        for p in range(len(residual)):
+                            full_warped_seds.append(
+                                {
+                                    "Phase": phase,
+                                    "Wavelength": wl_grid[p],
+                                    "ShiftedWavelength": wl_grid[p],
+                                    "Flux": binned_sed[p],
+                                    "FluxErr": binned_err[p],
+                                    "Nondetection": False, #TODO: Check this
+                                }
+                            )
+
         if verbose:
             logger.info(f'Done warping SED for {self.sn.name}')
 
         if save:
-            self.cube.to_csv(
-                os.path.join(
-                    self.sn.base_path,
-                    self.sn.classification,
-                    self.sn.subtype,
-                    self.sn.name,
-                    self.sn.name + "_datacube_mangled.csv",
-                ),
-            )
+            if warp_full_sed:
+                ### Save updated cube and full warped SEDs as fits extensions
+                full_warped_seds = pd.DataFrame(full_warped_seds)
+                full_warped_seds.fillna(0, inplace=True)
+                
+                primary_hdu = fits.PrimaryHDU()
+                cube = self.cube
+                for col in cube.columns:
+                    if cube[col].dtype == object:
+                        cube[col] = pd.to_numeric(cube[col], errors='ignore')
+                        
+                photometry_hdu = fits.BinTableHDU(Table.from_pandas(cube), name="WARPED PHOT")
+                photometry_hdu.header["DESCRIPTION"] = "Photometry with shifted central wavelengths"
+
+                sed_hdu = fits.BinTableHDU(Table.from_pandas(full_warped_seds), name="WARPED SEDS")
+                
+                hdul = fits.HDUList([primary_hdu, photometry_hdu, sed_hdu])
+                hdul.writeto(
+                    os.path.join(
+                        self.sn.base_path,
+                        self.sn.classification,
+                        self.sn.subtype,
+                        self.sn.name,
+                        self.sn.name + "_datacube_mangled.fits"
+                    )
+                )
+                hdul.close()
+
+            else:
+                self.cube.to_csv(
+                    os.path.join(
+                        self.sn.base_path,
+                        self.sn.classification,
+                        self.sn.subtype,
+                        self.sn.name,
+                        self.sn.name + "_datacube_mangled.csv",
+                    ),
+                )

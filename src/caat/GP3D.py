@@ -14,6 +14,8 @@ from scipy.interpolate import interp1d
 from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
 from astropy.convolution import convolve
+from astropy.io import fits
+from astropy.table import Table
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
 from scipy.stats import iqr
@@ -57,12 +59,14 @@ class GP3D(GP):
             set_to_normalize: Union[SNCollection, SNType, None] = None,
             use_fluxes: bool = False, 
             log_transform: bool = False, 
-            mangle_sed: bool = False
+            mangle_sed: bool = False,
+            use_full_sed: bool = False
         ):
 
         super().__init__(collection, kernel, filtlist, phasemin, phasemax, use_fluxes, log_transform)
         self.set_to_normalize = set_to_normalize
         self.mangle_sed = mangle_sed
+        self.use_full_sed = use_full_sed
 
         self.prepare_data()
 
@@ -75,13 +79,22 @@ class GP3D(GP):
             for sn in collection.sne:
                 # Read the correct cube based on self.mangle_sed
                 if self.mangle_sed:
-                    data_cube_filename = os.path.join(
-                        sn.base_path,
-                        sn.classification,
-                        sn.subtype,
-                        sn.name,
-                        sn.name + "_datacube_mangled.csv"
-                    )
+                    if self.use_full_sed:
+                        data_cube_filename = os.path.join(
+                            sn.base_path,
+                            sn.classification,
+                            sn.subtype,
+                            sn.name,
+                            sn.name + "_datacube_mangled.fits"
+                        )
+                    else:
+                        data_cube_filename = os.path.join(
+                            sn.base_path,
+                            sn.classification,
+                            sn.subtype,
+                            sn.name,
+                            sn.name + "_datacube_mangled.csv"
+                        )
                 else:
                     data_cube_filename = os.path.join(
                         sn.base_path,
@@ -91,7 +104,12 @@ class GP3D(GP):
                         sn.name + "_datacube.csv"
                     )                    
                 if os.path.exists(data_cube_filename):
-                    cube = pd.read_csv(data_cube_filename)
+                    if data_cube_filename.endswith('.csv'):
+                        cube = pd.read_csv(data_cube_filename)
+                    else:
+                        hdul = fits.open(data_cube_filename)
+                        cube = Table(hdul[1].data).to_pandas()
+                        seds = Table(hdul[2].data).to_pandas()
                 else:
                     # For now, we'll just construct it
                     datacube = DataCube(sn=sn)
@@ -163,6 +181,8 @@ class GP3D(GP):
                 # TODO: Implement
 
                 sn.cube = cube
+                if self.use_full_sed:
+                    sn.seds = seds
 
 
     @staticmethod
@@ -198,12 +218,20 @@ class GP3D(GP):
         of the photometry at each phase step
         """
 
-        phases, mags, errs, wls = self.process_dataset_for_gp(
-            filt,
-            log_transform=log_transform,
-            sn_set=sn_set,
-            use_fluxes=use_fluxes,
-        )
+        if not self.use_full_sed:
+            phases, mags, errs, wls = self.process_dataset_for_gp(
+                filt,
+                log_transform=log_transform,
+                sn_set=sn_set,
+                use_fluxes=use_fluxes,
+            )
+        else:
+            phases, mags, errs, wls = self.process_sed_dataset_for_gp(
+                filt,
+                log_transform=log_transform,
+                sn_set=sn_set,
+                use_fluxes=use_fluxes
+            )
 
         if len(phases) == 0:
             return np.asarray([]), np.asarray([]), np.asarray([]), np.asarray([])
@@ -446,7 +474,7 @@ class GP3D(GP):
                     ]
                 )
             else:
-                inds = template_df[abs(template_df["Mag"] - wl_grid[j]) <= 499].index
+                inds = template_df[abs(template_df["Wavelength"] - wl_grid[j]) <= 499].index
                 anchor_phases = np.asarray([phasemin, phasemin + 2.5, phasemax])
 
             if len(inds) > 0:
@@ -1143,5 +1171,5 @@ class GP3D(GP):
                     sncollection=self.collection,
                     norm_set=self.set_to_normalize,
                 )
-                
+
             return snmodel
