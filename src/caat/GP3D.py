@@ -695,36 +695,36 @@ class GP3D(GP):
             y = np.concatenate([y, residuals["MagResidual"].values])
             err = np.concatenate([err, residuals["MagErr"].values])
 
-            gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
-            gaussian_process.fit(x, y)
+        gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+        gaussian_process.fit(x, y)
 
-            x, y, wl_inds_fitted, phase_inds_fitted = self.build_test_wavelength_phase_grid_from_photometry(
-                x[:,1], x[:,0], wl_grid, phase_grid
-            )
+        x, y, wl_inds_fitted, phase_inds_fitted = self.build_test_wavelength_phase_grid_from_photometry(
+            x[:,1], x[:,0], wl_grid, phase_grid
+        )
 
-            test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
+        test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
 
-            template_mags = []
-            for wl_ind in wl_inds_fitted:
-                for phase_ind in phase_inds_fitted:
-                    template_mags.append(mag_grid[phase_ind, wl_ind])
+        template_mags = []
+        for wl_ind in wl_inds_fitted:
+            for phase_ind in phase_inds_fitted:
+                template_mags.append(mag_grid[phase_ind, wl_ind])
 
-            template_mags = np.asarray(template_mags).reshape((len(x), -1))
+        template_mags = np.asarray(template_mags).reshape((len(x), -1))
 
-            final_prediction = test_prediction.reshape((len(x), -1)) + template_mags
-            final_std_prediction = std_prediction.reshape((len(x), -1))
+        final_prediction = test_prediction.reshape((len(x), -1)) + template_mags
+        final_std_prediction = std_prediction.reshape((len(x), -1))
 
-            Plot().plot_construct_grid(
-                gp_class=self, 
-                X=np.exp(x) - self.log_transform, 
-                Y=10**(y), 
-                Z=final_prediction, 
-                Z_lower= final_prediction - 1.96 * (final_std_prediction), 
-                Z_upper=final_prediction + 1.96 * (final_std_prediction),
-                grid_type="final", 
-                use_fluxes=self.use_fluxes
-            )
-            return gaussian_process, mag_grid, phase_grid, wl_grid
+        Plot().plot_construct_grid(
+            gp_class=self, 
+            X=np.exp(x) - self.log_transform, 
+            Y=10**(y), 
+            Z=final_prediction, 
+            Z_lower= final_prediction - 1.96 * (final_std_prediction), 
+            Z_upper=final_prediction + 1.96 * (final_std_prediction),
+            grid_type="final", 
+            use_fluxes=self.use_fluxes
+        )
+        return gaussian_process, mag_grid, phase_grid, wl_grid
 
 
     def run_gp_individually(

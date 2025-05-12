@@ -219,8 +219,8 @@ class SNModel:
             template_lc = np.zeros(len(prediction))
 
         plt.plot(linear_phases, prediction + template_lc)
-        plt.plot(linear_phases, prediction + template_lc - dev, alpha=0.2, color='blue')
-        plt.plot(linear_phases, prediction + template_lc + dev, alpha=0.2, color='blue')
+        plt.plot(linear_phases, prediction + template_lc - 1.96*dev, alpha=0.2, color='blue')
+        plt.plot(linear_phases, prediction + template_lc + 1.96*dev, alpha=0.2, color='blue')
         plt.xlabel("Phase (days)")
         plt.ylabel("Log10(Flux) Relative to Peak")
         plt.title(f"Light curve at {wavelength} Angstroms")
@@ -341,8 +341,8 @@ class SNModel:
             template_lc = np.zeros(len(prediction))
 
         plt.plot(linear_waves, prediction + template_lc)
-        plt.plot(linear_waves, prediction + template_lc - dev, alpha=0.2, color='blue')
-        plt.plot(linear_waves, prediction + template_lc + dev, alpha=0.2, color='blue')
+        plt.plot(linear_waves, prediction + template_lc - 1.96*dev, alpha=0.2, color='blue')
+        plt.plot(linear_waves, prediction + template_lc + 1.96*dev, alpha=0.2, color='blue')
         plt.xlabel("Phase (days)")
         plt.xlabel("Wavelength (Angstrom)")
         plt.ylabel("Log10(Flux) Relative to Peak")
