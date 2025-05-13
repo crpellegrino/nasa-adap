@@ -215,6 +215,7 @@ class DataCube:
             plot: bool = False, 
             verbose: bool = False,
             save: bool = False,
+            overwrite: bool = False,
         ):
 
         #TODO: Diagnostics on observed photometry versus mangled photometry
@@ -224,7 +225,7 @@ class DataCube:
             logger.error("Convergence threshold must be greater than 1")
             return
 
-        if save:
+        if save and not overwrite:
             if (not warp_full_sed and os.path.exists(
                 os.path.join(
                         self.sn.base_path,
@@ -289,8 +290,8 @@ class DataCube:
 
                 current_lc = current_lc_cube['Flux'].values
                 # TODO: Eval
-                current_lc = np.concatenate(([0.0], current_lc, [current_lc[-1]/2]))
-                current_lc_err = np.concatenate(([0.0], current_lc_cube['Fluxerr'], [0.0]))
+                current_lc = np.concatenate(([current_lc[0]/4], current_lc, [current_lc[-1]/4]))
+                current_lc_err = np.concatenate(([current_lc_cube["Fluxerr"].values[0]], current_lc_cube['Fluxerr'], [current_lc_cube["Fluxerr"].values[-1]]))
                 current_lc_wls = np.concatenate((
                     [trans_fns[bluest_filt]['min_wl'] * (1 + self.sn.info.get('z', 0.0))],
                     current_lc_cube['Wavelength'],
@@ -373,7 +374,7 @@ class DataCube:
                         ### Make a residual interpolated SED from the convolved fluxes at the 
                         ### implied wavelengths, warp the SED using this residual, and rerun the loop
                         if n < niter:
-                            residual_interp = interp1d(measured_wls, np.concatenate(([0.0], residuals, [residuals[-1]/2])))
+                            residual_interp = interp1d(measured_wls, np.concatenate(([1.0], residuals, [1.0]))) # Well-bounded residuals
                             residual = residual_interp(wl_grid)
                             binned_sed /= residual
 
@@ -443,7 +444,8 @@ class DataCube:
                         self.sn.subtype,
                         self.sn.name,
                         self.sn.name + "_datacube_mangled.fits"
-                    )
+                    ),
+                    overwrite=overwrite
                 )
                 hdul.close()
 
@@ -455,5 +457,5 @@ class DataCube:
                         self.sn.subtype,
                         self.sn.name,
                         self.sn.name + "_datacube_mangled.csv",
-                    ),
+                    )
                 )

@@ -421,7 +421,7 @@ class Plot:
         plt.title(sn.name)
         plt.legend()
 
-    def plot_run_gp_surface(self, gp_class, x, y, test_prediction_reshaped, use_fluxes=False):
+    def plot_run_gp_surface(self, gp_class, x, y, test_prediction_reshaped, title, use_fluxes=False):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         ax.plot_surface(x, y, test_prediction_reshaped)
@@ -432,6 +432,7 @@ class Plot:
         else:
             ax.invert_zaxis()
             ax.set_zlabel("Magnitude")
+        ax.set_title(title)
         plt.tight_layout()
         plt.show()
 

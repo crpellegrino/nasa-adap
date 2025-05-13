@@ -755,16 +755,15 @@ class GP3D(GP):
         return gaussian_process, mag_grid, phase_grid, wl_grid
 
 
-    def run_gp_individually(
+    def run_gp_individually_full_sed(
         self,
         plot=False,
         subtract_median=False,
         subtract_polynomial=False,
         interactive=False,
-        run_diagnostics=False,
     ):
         """
-        Function to run the Gaussian Process Regression on each SN individually
+        Function to run the Gaussian Process Regression on each SN individually over the full SED
         ===============================================
         Takes as input:
         plot: Optional flag to plot fits and intermediate figures
@@ -836,227 +835,56 @@ class GP3D(GP):
                 gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
                 gaussian_process.fit(x, y)
 
-                if plot:
-                    fig, ax = Plot().create_empty_subplot()
+            x, y, wl_inds_fitted, phase_inds_fitted = self.build_test_wavelength_phase_grid_from_photometry(
+                residuals["Wavelength"].values, residuals["Phase"].values, wl_grid, phase_grid
+            )
+            try:
+                test_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=False)
+            except Exception as e:
+                logger.warning(f'WARNING:   BROKEN FIT FOR {sn.name}')
+                logger.info(e)
+                continue
+            
+            test_prediction = np.asarray(test_prediction)
+            template_mags = []
 
-                ####################################
-                # If we fit the full SED, replace this block with the
-                # grid of wavelengths covering the full SED that the SN
-                # observations probe (e.g. bluest edge of bluest filt to
-                # reddest edge of reddest filt)
+            for wl_ind in wl_inds_fitted:
 
-                filts_fitted = []
+                for phase_ind in phase_inds_fitted:
+                    template_mags.append(mag_grid[phase_ind, wl_ind])
 
-                for filt in self.filtlist:
+            template_mags = np.asarray(template_mags).reshape(x.shape)
 
-                    if self.log_transform is not False:
-                        
-                        test_times_linear = np.arange(
-                            min(phase_residuals_linear),
-                            max(phase_residuals_linear),
-                            1.0 / 24
-                        ) 
-                        test_times = np.log(test_times_linear - min(phase_residuals_linear) + 0.1)
+            ### Put the fitted wavelengths back in the right spot on the grid
+            ### and append to the gaussian processes array
+            test_prediction_reshaped = test_prediction.reshape(template_mags.shape) + template_mags
 
-                        test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
-                    else:
-                        if (
-                            not self.mangle_sed 
-                            and len(
-                                residuals[
-                                    residuals["Wavelength"] == self.wle[filt]
-                                ]["Wavelength"].values * (1 + sn.info.get("z", 0))
-                            ) == 0
-                        ):
-                            continue
-                        test_times = np.arange(self.phasemin, self.phasemax, 1.0 / 24)
-                        test_waves = np.ones(len(test_times)) * self.wle[filt] * (1 + sn.info.get("z", 0))
+            gp_grid = np.empty((len(wl_grid), len(phase_grid)))
+            gp_grid[:] = np.nan
+            for i, col in enumerate(test_prediction_reshaped[:,]):
+                current_wl_grid_ind = wl_inds_fitted[i]
+                for j in range(len(col)):
+                    current_phase_grid_ind = phase_inds_fitted[j]
+                    gp_grid[current_wl_grid_ind, current_phase_grid_ind] = col[j]
 
-                    ### Trying to convert back to normalized magnitudes here
-                    if self.log_transform is not None:
-                        wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
-                    else:
-                        wl_ind = np.argmin(abs(wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
+            if plot:
+                Plot().plot_run_gp_surface(
+                    gp_class=self,
+                    x=np.exp(x)-self.log_transform,
+                    y=10**(y),
+                    test_prediction_reshaped=test_prediction_reshaped,
+                    title=sn.name,
+                    use_fluxes=self.use_fluxes,
+                )
 
-                    # If making above changes, then wl_ind here should be closest wavelength to the current SED wavelength
-                    
-                    template_mags = []
-                    if self.log_transform is not False:
-                        for i in range(len(test_times_linear)):
-                            j = np.argmin(abs(np.exp(phase_grid) - self.log_transform - test_times_linear[i]))
-                            template_mags.append(mag_grid[j, wl_ind])
-                    else:
-                        for i in range(len(test_times)):
-                            j = np.argmin(abs(phase_grid - test_times[i]))
-                            template_mags.append(mag_grid[j, wl_ind])
+            if not plot:
+                use_for_template = "y"
+            elif not interactive:
+                use_for_template = "y"
 
-                    template_mags = np.asarray(template_mags)
-
-                    test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
-                    if self.log_transform is not False:
-                        test_times = np.exp(test_times) + min(phase_residuals_linear) - 0.1
-                    
-                    # Plot the SN photometry
-                    shifted_mjd = sn.cube[sn.cube['Filter']==filt]['Phase'].values.astype(float)
-                    if self.log_transform is not False:
-                        shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=self.log_transform)
-
-                    if self.log_transform is not False:
-                        inds_to_fit = np.where(
-                            (shifted_mjd > np.log(self.phasemin + self.log_transform)) & (shifted_mjd < np.log(self.phasemax + self.log_transform))
-                        )[0]
-                    else:
-                        inds_to_fit = np.where((shifted_mjd > self.phasemin) & (shifted_mjd < self.phasemax))[0]
-
-                    residuals_for_filt = residuals[
-                        (residuals["Filter"] == filt)
-                        & (residuals["Phase"] > np.log(self.phasemin + self.log_transform))
-                        & (residuals["Phase"] < np.log(self.phasemax + self.log_transform))
-                        & (residuals["Nondetection"] == False)
-                    ]
-                    if len(inds_to_fit) > 0:
-                        filts_fitted.append(filt)
-
-                        # If making the above changes, we want to integrate the GP-predicted SED over the 
-                        # current filter transmission function to get the GP-predicted LC in that band
-
-                        if plot:
-                            key_to_plot = "flux" if self.use_fluxes else "mag"
-                            try:
-                                Plot().plot_run_gp_overlay(
-                                    ax=ax,
-                                    sn_class=sn,
-                                    test_times=test_times,
-                                    test_prediction=test_prediction,
-                                    std_prediction=std_prediction,
-                                    template_mags=template_mags,
-                                    residuals=residuals_for_filt,
-                                    phase_residuals=residuals["Phase"].values,
-                                    wl_residuals=residuals["Wavelength"].values,
-                                    err_residuals=residuals["MagErr"].values,
-                                    inds_to_fit=inds_to_fit,
-                                    log_transform=self.log_transform,
-                                    filt=filt,
-                                    use_fluxes=self.use_fluxes,
-                                    key_to_plot=key_to_plot,
-                                )
-                            except:
-                                continue
-
-                    if run_diagnostics:
-                        d = Diagnostic()
-                        d.identify_outlier_points(
-                            filt,
-                            test_times,
-                            test_prediction + template_mags,
-                            std_prediction,
-                            np.exp(
-                                residuals_for_filt["Phase"].values
-                            )-self.log_transform,
-                            residuals_for_filt["Mag"].values,
-                            residuals_for_filt["MagErr"].values,
-                            log_transform=self.log_transform
-                        )
-
-                        d.check_late_time_slope(
-                            filt,
-                            test_times,
-                            test_prediction + template_mags,
-                            np.exp(residuals_for_filt["Phase"].values) - self.log_transform,
-                            use_fluxes=self.use_fluxes                                
-                        )
-
-                    if (subtract_median or subtract_polynomial) and interactive:
-                        use_for_template = input("Use this fit to construct a template? y/n")
-                
-                ####################################
-
-                # If making the changes in the above block, do we need to rerun the `gaussian_process.predict` here?
-
-                if subtract_median or subtract_polynomial:
-                    x, y, wl_inds_fitted, phase_inds_fitted = self.build_test_wavelength_phase_grid_from_photometry(
-                        residuals["Wavelength"].values, residuals["Phase"].values, wl_grid, phase_grid
-                    )
-                    try:
-                        test_prediction, std_prediction = gaussian_process.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
-                    except Exception as e:
-                        logger.warning(f'WARNING:   BROKEN FIT FOR {sn.name}')
-                        logger.info(e)
-                        continue
-                    test_prediction = np.asarray(test_prediction)
-
-                    template_mags = []
-
-                    for wl_ind in wl_inds_fitted:
-
-                        for phase_ind in phase_inds_fitted:
-                            template_mags.append(mag_grid[phase_ind, wl_ind])
-                            ###NOTE: Some of these template mags are NaNs
-
-                    template_mags = np.asarray(template_mags).reshape((len(x), -1))
-
-                    ### Put the fitted wavelengths back in the right spot on the grid
-                    ### and append to the gaussian processes array
-                    test_prediction_reshaped = test_prediction.reshape((len(x), -1)) + template_mags
-
-                    test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
-                    for i, col in enumerate(test_prediction_reshaped.T):
-                        window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5) # Window size of approximately half a filter length scale
-                        if window_size % 2 == 0:
-                            window_size += 1 # Must be odd
-                        # Use astropy convolve function to handle NaNs
-                        test_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend') # Boxcar smoothing
-
-                    std_prediction_reshaped = std_prediction.reshape((len(x), -1)) + template_mags
-                    std_prediction_smoothed = np.empty(std_prediction_reshaped.shape)
-                    for i, col in enumerate(std_prediction_reshaped.T):
-                        window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5)
-                        if window_size % 2 == 0:
-                            window_size += 1 # Must be odd
-                        std_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend')
-
-                    gp_grid = np.empty((len(wl_grid), len(phase_grid)))
-                    gp_grid[:] = np.nan
-                    for i, col in enumerate(test_prediction_smoothed[:,]):
-                        current_wl_grid_ind = wl_inds_fitted[i]
-                        for j in range(len(col)):
-                            current_phase_grid_ind = phase_inds_fitted[j]
-                            gp_grid[current_wl_grid_ind, current_phase_grid_ind] = col[j]
-
-                    if plot:
-                        Plot().plot_run_gp_surface(
-                            gp_class=self,
-                            x=np.exp(x)-self.log_transform,
-                            y=10**(y),
-                            test_prediction_reshaped=test_prediction_smoothed,#test_prediction_reshaped,
-                            use_fluxes=self.use_fluxes,
-                        )
-                        if run_diagnostics:
-                            d = Diagnostic()
-                            d.check_gradient_between_filters(
-                                [self.wle[f] for f in filts_fitted],
-                                np.exp(phase_grid[phase_inds_fitted]) - self.log_transform,
-                                10**(wl_grid[wl_inds_fitted]),
-                                test_prediction_smoothed,
-                                std_prediction_smoothed,
-                                [-15.0, 0.0, 50.0]
-                            )
-                            if 'UVM2' in filts_fitted:
-                                d.check_uvm2_flux(
-                                    np.exp(phase_grid[phase_inds_fitted]) - self.log_transform,
-                                    10**(wl_grid[wl_inds_fitted]),
-                                    test_prediction_smoothed,
-                                    std_prediction_smoothed,
-                                    [-15.0, 0.0, 50.0]
-                                )
-                    if not plot:
-                        use_for_template = "y"
-                    elif not interactive:
-                        use_for_template = "y"
-
-                    if use_for_template == "y":
-                        gaussian_processes.append(gp_grid)
-                kernel_params.append(gaussian_process.kernel_.theta)
+            if use_for_template == "y":
+                gaussian_processes.append(gp_grid)
+            kernel_params.append(gaussian_process.kernel_.theta)
 
         return gaussian_processes, phase_grid, kernel_params, wl_grid
 
@@ -1109,11 +937,10 @@ class GP3D(GP):
 
         else:
             ### We're fitting each SN individually and then median combining the full 2D GP
-            gaussian_processes, phase_grid, _, wl_grid = self.run_gp_individually(
+            gaussian_processes, phase_grid, _, wl_grid = self.run_gp_individually_full_sed(
                 plot=plot,
                 subtract_median=subtract_median,
                 subtract_polynomial=subtract_polynomial,
-                run_diagnostics=run_diagnostics,
             )
 
             median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)

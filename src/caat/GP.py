@@ -228,7 +228,7 @@ class GP(Fitter):
                 if not sn.info.get("peak_filt"):
                     continue
 
-                peak_flux = max(sn.seds[sn.seds["Flux"] < 1e-10]["Flux"])
+                peak_flux = max(sn.seds[(sn.seds["Wavelength"] > 3500) & (sn.seds["Wavelength"] < 6500)]["Flux"])
 
                 current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Phase'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
                 for phase in current_phases:
