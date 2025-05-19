@@ -1,0 +1,75 @@
+# SN2023hzy magnitudes from Swift UVOT                                                        
+# generated Mon Aug 26 15:29:41 UTC 2024 using version 2015.1                                         
+# of Peter Brown's photometry pipeline                                                      
+# and version Swift_Rel5.8(Bld47)_30Jun2023 of HEASOFT                                                      
+#                                                                                         
+# Data comes from the Swift Data Center                                                   
+# A 5 arcsec aperture is used to measure the counts for the coincidence loss correction,  
+# a 3 or 5 arcsec source aperture (based on the error) was used for the aperture photometry 
+# subtracting off the galaxy count rate in a template image  (if available),              
+# and applying an aperture correction as appropriate (based on average psf in Swift CALDB)
+# and zeropoints from Breeveld et al. (2011) which update Poole et al. (2008)             
+# including a time-dependent sensitivity loss                                             
+# to put the magnitudes on the UVOT photometric system described in that paper.   
+# The sensitivity correction has been updated based on the 2015 redetermination.        
+#
+#  Brown, P. J., Holland, S. T., Immler, S., et al. 2009, ApJ, 137, 4517
+#  Brown, P. J., et al. 2014, Ap&SS, submitted
+#  Breeveld, A. A., Landsman, W., Holland, S. T., et al. 2011, in AIP Conf. Proc. 1358,   
+#     Gamma-Ray Bursts 2010, ed. J. E. McEnergy, J. L. Racusin, & N. Gehrels                 
+#     (Melville, NY: AIP), 373; arXiv:1102.4717                                              
+#  Poole, T. S., Breeveld, A. A., Page, M. J., et al. 2008, MNRAS, 383, 627
+#                                                                                         
+#                                                                                           
+#                                                                                           
+# The underlying galaxy had the following count rates                                       
+# in a 5 arcsec aperture at the source position  
+# (missing filters list 0 but used a background region similar to the SN ):                 
+# Galaxy count rates in 5" aperture
+# V               1.18615       0.193539
+# B               1.75064       0.221566
+# U              0.774323       0.114158
+# UVW1           0.125053      0.0151189
+# UVM2          0.0617635     0.00701274
+# UVW2          0.0802098      0.0191582
+#                                                                                           
+# There are no known issues with this photometry.                                           
+#                                                                                           
+# Filter MJD[days] Mag MagErr 3SigMagLim 0.98SatLim[mag] Rate[c/s] RateErr[c/s] Ap[arcsec] Frametime[s] Exp[s] Telapse[s]
+#                                                                                           
+UVW2     56004.7979    NULL    NULL  20.317  11.086  -0.017   0.018   3.000      0.0110322     812.53    6227.34
+UVW2     60092.9035    NULL    NULL  20.052  11.086   0.036   0.022   3.000      0.0110322     726.90    6422.46
+UVW2     60098.2188    NULL    NULL  20.084  11.086   0.056   0.023   3.000      0.0110322     812.29   68955.21
+UVW2     60101.5283    NULL    NULL  19.828  11.086   0.040   0.027   3.000      0.0110322     420.04     426.78
+UVW2     60104.4994    NULL    NULL  19.678  11.086   0.064   0.033   3.000      0.0110322     324.57     329.77
+#                                                                                           
+UVM2     56004.8034    NULL    NULL  20.195  10.556   0.011   0.013   3.000      0.0110322     621.71    6130.86
+UVM2     60092.9096    NULL    NULL  20.408  10.555   0.010   0.010   3.000      0.0110322    1106.60    6386.40
+UVM2     60098.2234    NULL    NULL  20.434  10.555   0.013   0.010   3.000      0.0110322    1176.80   69042.00
+UVM2     60101.5354    NULL    NULL  20.046  10.555  -0.015   0.011   3.000      0.0110322     598.74     608.33
+UVM2     60104.5049    NULL    NULL  19.867  10.555   0.019   0.016   3.000      0.0110322     464.12     471.56
+#                                                                                           
+UVW1     56004.7917    NULL    NULL  20.091  11.148  -0.003   0.024   3.000      0.0110322     406.04    6024.34
+UVW1     60092.8984  19.858   0.313  20.035  11.147   0.108   0.031   3.000      0.0110322     435.54    6454.37
+UVW1     60098.2150  19.576   0.251  20.070  11.148   0.140   0.032   3.000      0.0110322     486.51   68887.47
+UVW1     60101.5222    NULL    NULL  19.624  11.148   0.083   0.040   3.000      0.0110322     251.73     255.77
+UVW1     60104.4947    NULL    NULL  19.399  11.149   0.035   0.044   3.000      0.0110322     194.65     197.77
+#                                                                                           
+U        56004.6917    NULL    NULL  19.906  12.067  -0.010   0.075   3.000      0.0110322    3993.79   23527.13
+U        60092.9003  18.216   0.163  19.303  12.062   1.121   0.169   3.000      0.0110322     145.21    6245.96
+U        60098.2163  19.010   0.273  19.341  12.063   0.540   0.135   3.000      0.0110322     161.71   68766.88
+U        60101.5242    NULL    NULL  19.062  12.063   0.393   0.161   3.000      0.0110322      83.41      84.74
+U        60104.4963    NULL    NULL  18.904  12.065   0.188   0.168   3.000      0.0110322      64.73      65.77
+#                                                                                           
+B        56004.7948    NULL    NULL  19.781  12.868  -0.134   0.165   3.000      0.0110322     203.30    5919.49
+B        60092.9012  18.106   0.123  19.579  12.858   2.522   0.286   3.000      0.0110322     145.24    6215.86
+B        60098.2170  18.234   0.129  19.611  12.858   2.242   0.267   3.000      0.0110322     161.73   68760.07
+B        60101.5253  18.496   0.186  19.370  12.859   1.760   0.301   3.000      0.0110322      83.44      84.78
+B        60104.4971  18.736   0.241  19.249  12.861   1.412   0.314   3.000      0.0110322      64.73      65.77
+#                                                                                           
+V        56004.8009    NULL    NULL  18.675  11.625   0.113   0.144   3.000      0.0110322     203.29    5915.67
+V        60092.9065  17.633   0.171  18.532  11.622   1.267   0.199   3.000      0.0110322     145.22    6037.33
+V        60098.2208  17.492   0.152  18.555  11.622   1.443   0.201   3.000      0.0110322     161.72   68722.16
+V        60101.5313  17.755   0.219  18.359  11.622   1.133   0.229   3.000      0.0110322      83.45      84.79
+V        60104.5018  17.765   0.241  18.257  11.622   1.122   0.249   3.000      0.0110322      64.75      65.79
+#                                                                                           

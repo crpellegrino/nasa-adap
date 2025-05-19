@@ -1,0 +1,47 @@
+# AT2020aczq magnitudes from Swift UVOT                                                        
+# generated Fri Aug 2 18:37:35 UTC 2024 using version 2015.1                                         
+# of Peter Brown's photometry pipeline                                                      
+# and version Swift_Rel5.8(Bld47)_30Jun2023 of HEASOFT                                                      
+#                                                                                         
+# Data comes from the Swift Data Center                                                   
+# A 5 arcsec aperture is used to measure the counts for the coincidence loss correction,  
+# a 3 or 5 arcsec source aperture (based on the error) was used for the aperture photometry 
+# subtracting off the galaxy count rate in a template image  (if available),              
+# and applying an aperture correction as appropriate (based on average psf in Swift CALDB)
+# and zeropoints from Breeveld et al. (2011) which update Poole et al. (2008)             
+# including a time-dependent sensitivity loss                                             
+# to put the magnitudes on the UVOT photometric system described in that paper.   
+# The sensitivity correction has been updated based on the 2015 redetermination.        
+#
+#  Brown, P. J., Holland, S. T., Immler, S., et al. 2009, ApJ, 137, 4517
+#  Brown, P. J., et al. 2014, Ap&SS, submitted
+#  Breeveld, A. A., Landsman, W., Holland, S. T., et al. 2011, in AIP Conf. Proc. 1358,   
+#     Gamma-Ray Bursts 2010, ed. J. E. McEnergy, J. L. Racusin, & N. Gehrels                 
+#     (Melville, NY: AIP), 373; arXiv:1102.4717                                              
+#  Poole, T. S., Breeveld, A. A., Page, M. J., et al. 2008, MNRAS, 383, 627
+#                                                                                         
+#                                                                                           
+#                                                                                           
+# The underlying galaxy had the following count rates                                       
+# in a 5 arcsec aperture at the source position  
+# (missing filters list 0 but used a background region similar to the SN ):                 
+# Galaxy count rates in 5" aperture
+# UVM2            1.91940      0.0807988
+#                                                                                           
+# There are no known issues with this photometry.                                           
+#                                                                                           
+# Filter MJD[days] Mag MagErr 3SigMagLim 0.98SatLim[mag] Rate[c/s] RateErr[c/s] Ap[arcsec] Frametime[s] Exp[s] Telapse[s]
+#                                                                                           
+#                                                                                           
+UVM2     57062.2833    NULL    NULL  18.029  10.579  -1.509   0.076   3.000      0.0110322     600.29     609.91
+UVM2     57430.0221    NULL    NULL  17.743  10.579  -1.567   0.079   3.000      0.0110322     251.31     255.33
+UVM2     59246.1493    NULL    NULL  18.098  10.578  -0.445   0.102   3.000      0.0110322    1424.98    1447.82
+UVM2     59418.0009    NULL    NULL  17.865  10.578   0.176   0.142   3.000      0.0110322     444.90     452.03
+UVM2     59426.3400    NULL    NULL  17.853  10.578   0.253   0.147   3.000      0.0110322     427.34    6174.58
+UVM2     59430.9179  17.909   0.393  18.075  10.578   0.377   0.136   3.000      0.0110322    1250.88    6624.11
+UVM2     59466.4595    NULL    NULL  17.900  10.578  -0.130   0.127   3.000      0.0110322     505.95     514.06
+#                                                                                           
+#                                                                                           
+#                                                                                           
+#                                                                                           
+#                                                                                           
