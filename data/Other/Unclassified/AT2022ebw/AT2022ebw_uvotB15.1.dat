@@ -1,0 +1,84 @@
+# AT2022ebw magnitudes from Swift UVOT                                                        
+# generated Fri Aug 2 18:41:25 UTC 2024 using version 2015.1                                         
+# of Peter Brown's photometry pipeline                                                      
+# and version Swift_Rel5.8(Bld47)_30Jun2023 of HEASOFT                                                      
+#                                                                                         
+# Data comes from the Swift Data Center                                                   
+# A 5 arcsec aperture is used to measure the counts for the coincidence loss correction,  
+# a 3 or 5 arcsec source aperture (based on the error) was used for the aperture photometry 
+# subtracting off the galaxy count rate in a template image  (if available),              
+# and applying an aperture correction as appropriate (based on average psf in Swift CALDB)
+# and zeropoints from Breeveld et al. (2011) which update Poole et al. (2008)             
+# including a time-dependent sensitivity loss                                             
+# to put the magnitudes on the UVOT photometric system described in that paper.   
+# The sensitivity correction has been updated based on the 2015 redetermination.        
+#
+#  Brown, P. J., Holland, S. T., Immler, S., et al. 2009, ApJ, 137, 4517
+#  Brown, P. J., et al. 2014, Ap&SS, submitted
+#  Breeveld, A. A., Landsman, W., Holland, S. T., et al. 2011, in AIP Conf. Proc. 1358,   
+#     Gamma-Ray Bursts 2010, ed. J. E. McEnergy, J. L. Racusin, & N. Gehrels                 
+#     (Melville, NY: AIP), 373; arXiv:1102.4717                                              
+#  Poole, T. S., Breeveld, A. A., Page, M. J., et al. 2008, MNRAS, 383, 627
+#                                                                                         
+#                                                                                           
+#                                                                                           
+# The underlying galaxy had the following count rates                                       
+# in a 5 arcsec aperture at the source position  
+# (missing filters list 0 but used a background region similar to the SN ):                 
+# Galaxy count rates in 5" aperture
+# UVW1            8.01591       0.319846
+# UVM2            4.18646       0.167055
+# UVW2            6.54657       0.259740
+#                                                                                           
+# There are no known issues with this photometry.                                           
+#                                                                                           
+# Filter MJD[days] Mag MagErr 3SigMagLim 0.98SatLim[mag] Rate[c/s] RateErr[c/s] Ap[arcsec] Frametime[s] Exp[s] Telapse[s]
+#                                                                                           
+UVW2     57062.0598    NULL    NULL  17.804  11.168   0.451   0.269   3.000      0.0110322     221.22     224.76
+UVW2     57157.6073    NULL    NULL  17.677  11.169  -1.951   0.155   3.000      0.0110322     145.43     147.76
+UVW2     57523.4349    NULL    NULL  18.014  11.169  -2.085   0.128   3.000      0.0110322     492.29     737.70
+UVW2     57633.8183    NULL    NULL  17.831  11.169   0.654   0.266   3.000      0.0110322     289.12     293.75
+UVW2     57666.5189    NULL    NULL  18.013  11.168   0.486   0.236   3.000      0.0110322     623.54   22747.98
+UVW2     57685.6502    NULL    NULL  17.667  11.169   0.218   0.265   3.000      0.0110322     177.92     180.77
+UVW2     57703.9635    NULL    NULL  17.885  11.169   0.373   0.244   3.000      0.0110322     356.81    5780.98
+UVW2     57707.3990    NULL    NULL  17.671  11.168   0.723   0.291   3.000      0.0110322     181.85     184.77
+UVW2     57710.9705    NULL    NULL  18.160  11.169   0.187   0.207   3.000      0.0110322    2114.25  137866.20
+UVW2     57714.4316    NULL    NULL  17.840  11.169   0.018   0.231   3.000      0.0110322     299.71   35075.44
+UVW2     57715.2627    NULL    NULL  17.925  11.168   0.470   0.244   3.000      0.0110322     415.86    6235.93
+UVW2     57718.3177    NULL    NULL  18.143  11.168   0.314   0.214   3.000      0.0110322    1743.98   63590.63
+UVW2     57720.8824    NULL    NULL  17.443  11.170   0.421   0.314   3.000      0.0110322     105.09     106.78
+UVW2     59642.4602    NULL    NULL  17.797  11.168   0.437   0.248   3.000      0.0110322     314.73     319.78
+#                                                                                           
+UVM2     57062.0625    NULL    NULL  17.678  10.608   0.218   0.170   3.000      0.0110322     221.23     224.77
+UVM2     57157.6090    NULL    NULL  17.491  10.608   0.070   0.182   3.000      0.0110322     145.46     147.79
+UVM2     57523.4415    NULL    NULL  17.865  10.608  -1.478   0.081   3.000      0.0110322     383.63     389.78
+UVM2     57633.8217    NULL    NULL  17.736  10.608   0.238   0.162   3.000      0.0110322     289.24     293.87
+UVM2     57666.6528    NULL    NULL  17.816  10.608   0.153   0.151   3.000      0.0110322     368.87     374.78
+UVM2     57685.6523    NULL    NULL  17.544  10.608   0.039   0.171   3.000      0.0110322     177.87     180.72
+UVM2     57703.9657    NULL    NULL  17.803  10.608   0.284   0.158   3.000      0.0110322     356.83    5845.14
+UVM2     57707.4012    NULL    NULL  17.551  10.608   0.247   0.181   3.000      0.0110322     181.80     184.71
+UVM2     57710.9735    NULL    NULL  18.155  10.608   0.050   0.123   3.000      0.0110322    2114.31  137839.09
+UVM2     57714.4334    NULL    NULL  17.745  10.608   0.119   0.155   3.000      0.0110322     299.76   35196.54
+UVM2     57715.2652    NULL    NULL  17.850  10.608   0.168   0.148   3.000      0.0110322     415.90    6339.15
+UVM2     57718.3205    NULL    NULL  18.134  10.608   0.089   0.126   3.000      0.0110322    1743.93   63691.37
+UVM2     57720.8837    NULL    NULL  17.295  10.608   0.293   0.215   3.000      0.0110322     105.10     106.79
+UVM2     59642.4673    NULL    NULL  17.955  10.607   0.232   0.140   3.000      0.0110322     712.44     723.86
+#                                                                                           
+UVW1     57062.0653    NULL    NULL  17.822  11.248   0.320   0.277   3.000      0.0110322     239.24     243.08
+UVW1     57157.6109    NULL    NULL  17.671  11.254  -0.494   0.262   3.000      0.0110322     159.57     162.13
+UVW1     57523.4441    NULL    NULL  17.211  11.247  -0.160   0.363   3.000      0.0110322      57.38      58.30
+UVW1     57633.8253    NULL    NULL  17.836  11.250   0.246   0.264   3.000      0.0110322     305.95     310.85
+UVW1     57666.6574    NULL    NULL  17.902  11.248   0.242   0.254   3.000      0.0110322     399.05     405.45
+UVW1     57685.6545    NULL    NULL  17.677  11.250   0.039   0.278   3.000      0.0110322     182.09     185.01
+UVW1     57703.9679    NULL    NULL  17.877  11.251   0.309   0.260   3.000      0.0110322     369.17    5915.76
+UVW1     57707.4033    NULL    NULL  17.625  11.248   0.398   0.303   3.000      0.0110322     155.93     158.43
+UVW1     57710.9767    NULL    NULL  18.111  11.250  -0.051   0.218   3.000      0.0110322    2027.15  137834.56
+UVW1     57714.4352    NULL    NULL  17.769  11.249  -0.122   0.256   3.000      0.0110322     239.73   35314.42
+UVW1     57715.2677    NULL    NULL  17.916  11.249   0.175   0.249   3.000      0.0110322     431.86    6429.26
+UVW1     57718.3233    NULL    NULL  18.096  11.249   0.049   0.223   3.000      0.0110322    1627.83   63776.04
+UVW1     57720.8849    NULL    NULL  17.406  11.252   0.335   0.344   3.000      0.0110322      93.50      94.99
+UVW1     59642.4554    NULL    NULL  17.588  11.247   0.300   0.298   3.000      0.0110322     157.25     159.77
+#                                                                                           
+#                                                                                           
+#                                                                                           
+#                                                                                           
