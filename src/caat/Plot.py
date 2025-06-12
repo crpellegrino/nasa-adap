@@ -237,6 +237,7 @@ class Plot:
         X,
         Y,
         Z,
+        ax=None,
         Z_lower=None,
         Z_upper=None,
         grid_type=None,
@@ -252,10 +253,9 @@ class Plot:
         :input grid_type: takes str object 'median' or 'poly', default=None
         """
         gpc = gp_class
-
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection="3d")
-
+        if ax is None:
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection="3d")
         ax.plot_surface(X, Y, Z)
 
         if Z_lower is not None:
@@ -300,7 +300,6 @@ class Plot:
                 plt.title(filt)
                 # plt.show()
 
-        plt.show()
 
     def plot_subtract_data_from_grid(
         self,

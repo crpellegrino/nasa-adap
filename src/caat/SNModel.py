@@ -145,6 +145,10 @@ class SNModel:
         else:
             model_hdu.header["OBJECTS"] = ",".join([sn.name for sn in self.collection.sne])
         model_hdu.header["NORM_SET"] = ",".join([sn.name for sn in self.norm_set.sne])
+        if isinstance(self.surface, GaussianProcessRegressor):
+            model_hdu.header["TYPE"] = "Gaussian Process Regressor"
+        elif isinstance(self.surface, SurfaceArray):
+            model_hdu.header["TYPE"] = "Numpy Array"
 
         template_hdu = fits.ImageHDU(self.template, name="TEMPLATE")
 
@@ -227,87 +231,87 @@ class SNModel:
         if show:
             plt.show()
 
-    def predict_lightcurve_over_filter(self, phase_min, phase_max, filt, show=True):
-        # Predict a light curve over a filter
-        if phase_max > self.max_phase or phase_min < self.min_phase:
-            raise ValueError("Phases need to be within the bounds of the GP")
+    # def predict_lightcurve_over_filter(self, phase_min, phase_max, filt, show=True):
+    #     # Predict a light curve over a filter
+    #     if phase_max > self.max_phase or phase_min < self.min_phase:
+    #         raise ValueError("Phases need to be within the bounds of the GP")
         
-        ### Try to integrate over the SED
-        trans_wl, trans_eff = query_svo_service(FILT_TEL_CONVERSION[filt.replace("'", "")], filt.replace("'", ""))
-        trans_eff /= max(trans_eff)
-        # Get min and max wavelength for this filter, let's define it as where eff < 10%
-        center_of_filt = trans_wl[np.argmax(trans_eff)]
-        center_inds = np.where((trans_eff >= 0.1))[0]
-        tail_wls = trans_wl[np.where((trans_eff < 0.1))[0]]
-        try:
-            min_trans_wl = np.max(tail_wls[np.where((tail_wls < center_of_filt))[0]])
-            max_trans_wl = np.min(tail_wls[np.where((tail_wls > center_of_filt))[0]])
-        except:
-            logger.error(f"Warning: transmission function failed for {filt}")
-            return
+    #     ### Try to integrate over the SED
+    #     trans_wl, trans_eff = query_svo_service(FILT_TEL_CONVERSION[filt.replace("'", "")], filt.replace("'", ""))
+    #     trans_eff /= max(trans_eff)
+    #     # Get min and max wavelength for this filter, let's define it as where eff < 10%
+    #     center_of_filt = trans_wl[np.argmax(trans_eff)]
+    #     center_inds = np.where((trans_eff >= 0.1))[0]
+    #     tail_wls = trans_wl[np.where((trans_eff < 0.1))[0]]
+    #     try:
+    #         min_trans_wl = np.max(tail_wls[np.where((tail_wls < center_of_filt))[0]])
+    #         max_trans_wl = np.min(tail_wls[np.where((tail_wls > center_of_filt))[0]])
+    #     except:
+    #         logger.error(f"Warning: transmission function failed for {filt}")
+    #         return
         
-        if max_trans_wl < self.min_wl or min_trans_wl > self.max_wl:
-            raise ValueError("Wavelength needs to be within the bounds of the GP")
+    #     if max_trans_wl < self.min_wl or min_trans_wl > self.max_wl:
+    #         raise ValueError("Wavelength needs to be within the bounds of the GP")
         
-        if self.log_transform is not False:
-            linear_phases = np.linspace(phase_min, phase_max, int(min(len(self.phase_grid)/2, len(self.wl_grid)/2)))
-            phases = np.log(linear_phases + self.log_transform)
-            waves = np.linspace(np.log10(min_trans_wl), np.log10(max_trans_wl), len(self.wl_grid))
+    #     if self.log_transform is not False:
+    #         linear_phases = np.linspace(phase_min, phase_max, int(min(len(self.phase_grid)/2, len(self.wl_grid)/2)))
+    #         phases = np.log(linear_phases + self.log_transform)
+    #         waves = np.linspace(np.log10(min_trans_wl), np.log10(max_trans_wl), len(self.wl_grid))
 
-        else:
-            phases = np.linspace(phase_min, phase_max, int(min(len(self.phase_grid)/2, len(self.wl_grid)/2)))
-            linear_phases = phases
-            waves = np.linspace(min_trans_wl, max_trans_wl, len(self.wl_grid))
+    #     else:
+    #         phases = np.linspace(phase_min, phase_max, int(min(len(self.phase_grid)/2, len(self.wl_grid)/2)))
+    #         linear_phases = phases
+    #         waves = np.linspace(min_trans_wl, max_trans_wl, len(self.wl_grid))
 
-        # Interpolate the transmission function onto the template grid
-        _, binned_trans_eff = bin_spec(trans_wl[center_inds], trans_eff[center_inds], 10**waves)
-        center_inds = np.where((binned_trans_eff >= 0.1))[0]
+    #     # Interpolate the transmission function onto the template grid
+    #     _, binned_trans_eff = bin_spec(trans_wl[center_inds], trans_eff[center_inds], 10**waves)
+    #     center_inds = np.where((binned_trans_eff >= 0.1))[0]
 
-        x, y = np.meshgrid(phases, waves)
+    #     x, y = np.meshgrid(phases, waves)
 
-        prediction, dev = self.surface.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
-        prediction = prediction.reshape((len(phases), -1))
-        dev = dev.reshape((len(phases)), -1)
+    #     prediction, dev = self.surface.predict(np.vstack((x.ravel(), y.ravel())).T, return_std=True)
+    #     prediction = prediction.reshape((len(phases), -1))
+    #     dev = dev.reshape((len(phases)), -1)
 
-        # Integrate over the SED
-        # TODO: We have to add the template mag grid onto this before integrating
-        lc = []
-        lc_upper = []
-        lc_lower = []
-        for i, sed in enumerate(prediction[:]):
-            sed = 10**(sed + self.template[i]) # Put back into linear units for the integration
-            synthetic_phot = np.nansum(sed*binned_trans_eff[center_inds]) / len(sed)
-            lc.append(synthetic_phot)
+    #     # Integrate over the SED
+    #     # TODO: We have to add the template mag grid onto this before integrating
+    #     lc = []
+    #     lc_upper = []
+    #     lc_lower = []
+    #     for i, sed in enumerate(prediction[:]):
+    #         sed = 10**(sed + self.template[i]) # Put back into linear units for the integration
+    #         synthetic_phot = np.nansum(sed*binned_trans_eff[center_inds]) / len(sed)
+    #         lc.append(synthetic_phot)
 
-            sed_upper = 10**(sed + dev[i] + self.template[i])
-            synthetic_phot_upper = np.nansum(sed_upper*binned_trans_eff[center_inds]) / len(sed)
-            lc_upper.append(synthetic_phot_upper)
+    #         sed_upper = 10**(sed + dev[i] + self.template[i])
+    #         synthetic_phot_upper = np.nansum(sed_upper*binned_trans_eff[center_inds]) / len(sed)
+    #         lc_upper.append(synthetic_phot_upper)
 
-            sed_lower = 10**(sed - dev[i] + self.template[i])
-            synthetic_phot_lower = np.nansum(sed_lower*binned_trans_eff[center_inds]) / len(sed)
-            lc_lower.append(synthetic_phot_lower)
+    #         sed_lower = 10**(sed - dev[i] + self.template[i])
+    #         synthetic_phot_lower = np.nansum(sed_lower*binned_trans_eff[center_inds]) / len(sed)
+    #         lc_lower.append(synthetic_phot_lower)
 
-        lc = np.log10(np.asarray(lc))
-        lc_upper = np.log10(np.asarray(lc_upper))
-        lc_lower = np.log10(np.asarray(lc_lower))
+    #     lc = np.log10(np.asarray(lc))
+    #     lc_upper = np.log10(np.asarray(lc_upper))
+    #     lc_lower = np.log10(np.asarray(lc_lower))
         
-        # Add back on template mag for the correct phase and wavelength inds
-        # TODO: Is this correct?
-        template_lc = []
-        wl_ind = np.argmin((abs(self.wl_grid - center_of_filt)))
-        for i in range(len(phases)):
-            phase_ind = np.argmin((abs(self.phase_grid - linear_phases[i])))
-            template_lc.append(self.template[phase_ind, wl_ind])
-        template_lc = np.asarray(template_lc)
+    #     # Add back on template mag for the correct phase and wavelength inds
+    #     # TODO: Is this correct?
+    #     template_lc = []
+    #     wl_ind = np.argmin((abs(self.wl_grid - center_of_filt)))
+    #     for i in range(len(phases)):
+    #         phase_ind = np.argmin((abs(self.phase_grid - linear_phases[i])))
+    #         template_lc.append(self.template[phase_ind, wl_ind])
+    #     template_lc = np.asarray(template_lc)
 
-        plt.plot(linear_phases, lc + template_lc)
-        plt.plot(linear_phases, lc_lower + template_lc, alpha=0.2, color='blue')
-        plt.plot(linear_phases, lc_upper + template_lc, alpha=0.2, color='blue')
-        plt.xlabel("Phase (days)")
-        plt.ylabel("Log10(Flux) Relative to Peak")
-        plt.title(f"{filt} Light Curve")
-        if show:
-            plt.show()
+    #     plt.plot(linear_phases, lc + template_lc)
+    #     plt.plot(linear_phases, lc_lower + template_lc, alpha=0.2, color='blue')
+    #     plt.plot(linear_phases, lc_upper + template_lc, alpha=0.2, color='blue')
+    #     plt.xlabel("Phase (days)")
+    #     plt.ylabel("Log10(Flux) Relative to Peak")
+    #     plt.title(f"{filt} Light Curve")
+    #     if show:
+    #         plt.show()
     
     def predict_sed(self, wavelength_min, wavelength_max, phase, show=True):
 
