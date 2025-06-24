@@ -156,9 +156,6 @@ class GP3D(GP):
                     ].index
                     cube = cube.drop(inds_to_drop_nondets_between_dets).reset_index(drop=True)
                 
-                # Construct anchor points
-                # TODO: Implement
-
                 sn.cube = cube
 
 
@@ -428,29 +425,48 @@ class GP3D(GP):
         mag_grid = np.empty((len(phase_grid), len(wl_grid)))
         mag_grid[:] = np.nan
         err_grid = np.copy(mag_grid)
+                
+        ### Add an array of fake measurements to anchor the ends of the fit
+        if log_transform is not False:
+            anchor_inds_begin = np.where((abs(template_df["Phase"] - np.log(phasemin + log_transform)) < 1.0))[0]
+            if len(anchor_inds_begin) > 0:
+                anchor_mag_begin = min(template_df["Mag"][anchor_inds_begin].values)
+            else:
+                anchor_mag_begin = -4.0
+
+            anchor_inds_end = np.where((abs(template_df["Phase"] - np.log(phasemax + log_transform)) < 0.3))[0]
+            if len(anchor_inds_end) > 0:
+                anchor_mag_end = min(template_df["Mag"][anchor_inds_end].values)
+            else:
+                anchor_mag_end = -4.0
+
+            anchor_phases = np.asarray(
+                [
+                    np.log(phasemin + log_transform),
+                    np.log(phasemin + 2.5 + log_transform),
+                    np.log(phasemax + log_transform),
+                ]
+            )
+            anchor_mags = np.asarray([anchor_mag_begin - 1.0, anchor_mag_begin, anchor_mag_end - 1.0])
+
+        else:
+            anchor_phases = np.asarray([phasemin, phasemin + 2.5, phasemax])
+            anchor_mags = np.asarray([-5.0, -4.0, -5.0])
 
         for j in range(len(wl_grid)):
 
             ### Get all data that falls within this wl +- 500 A
             if log_transform is not False:
                 inds = template_df[abs(10**template_df["Wavelength"] - 10**wl_grid[j]) <= 499].index
-                ### Add an array of fake measurements to anchor the ends of the fit
-                anchor_phases = np.asarray(
-                    [
-                        np.log(phasemin + log_transform),
-                        np.log(phasemin + 2.5 + log_transform),
-                        np.log(phasemax + log_transform),
-                    ]
-                )
+
             else:
                 inds = template_df[abs(template_df["Mag"] - wl_grid[j]) <= 499].index
-                anchor_phases = np.asarray([phasemin, phasemin + 2.5, phasemax])
 
             if len(inds) > 0:
 
                 fit_coeffs = np.polyfit(
                     np.concatenate((template_df["Phase"][inds], anchor_phases)),
-                    np.concatenate((template_df["Mag"][inds], np.asarray([-5.0, -4.0, -5.0]))),  # np.ones(len(anchor_phases)) * -5.0)),
+                    np.concatenate((template_df["Mag"][inds], anchor_mags)),
                     3,
                     w=1
                     / (
@@ -537,7 +553,7 @@ class GP3D(GP):
             if len(phases) > 0 and not np.isnan(sn.info.get("z", 0)):
                 for i, phase in enumerate(phases):
                     ### Get index of current phase in phase grid
-                    if log_transform is not None:
+                    if log_transform is not False:
                         ### The phase corresponding to phase_ind is no more than the phase grid spacing away from the true phase being measured
                         phase_ind = np.argmin(abs(np.exp(phase_grid) - np.exp(phase)))
                     else:
@@ -600,7 +616,7 @@ class GP3D(GP):
         in the form of measured wavelengths and phases as well as a wavelength and phase grid
         corresponding to the template SED grid
         """
-        if self.log_transform is not None:
+        if self.log_transform is not False:
             waves_to_predict = np.unique(measured_wavelengths)
             diffs = abs(
                 np.subtract.outer(10**wl_grid, 10**waves_to_predict)
@@ -683,7 +699,7 @@ class GP3D(GP):
             if len(residuals) == 0:
                 continue
 
-            if self.log_transform is not None:
+            if self.log_transform is not False:
                 phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
                 phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
 
@@ -794,7 +810,7 @@ class GP3D(GP):
             if len(residuals) == 0:
                 continue
 
-            if self.log_transform is not None:
+            if self.log_transform is not False:
                 phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
                 phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
 
@@ -891,7 +907,7 @@ class GP3D(GP):
             if len(residuals) == 0:
                 continue
 
-            if self.log_transform is not None:
+            if self.log_transform is not False:
                 phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
                 phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
 
@@ -938,7 +954,7 @@ class GP3D(GP):
                         test_waves = np.ones(len(test_times)) * self.wle[filt] * (1 + sn.info.get("z", 0))
 
                     ### Trying to convert back to normalized magnitudes here
-                    if self.log_transform is not None:
+                    if self.log_transform is not False:
                         wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
                     else:
                         wl_ind = np.argmin(abs(wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
