@@ -1,6 +1,7 @@
 import os
 import json
 import warnings
+from abc import ABC, abstractmethod
 from typing import Union, Optional
 from statistics import mean, stdev
 import matplotlib.pyplot as plt
@@ -28,15 +29,31 @@ from caat.utils import WLE
 warnings.filterwarnings("ignore")
 
 
-class Fitter:  # pylint: disable=too-few-public-methods
+class Fitter(ABC): 
     """
-    A Fitter object, fitting the light curves of a class (Type) of supernovae
+    An AbstractBaseClass representing any Fitter object
+
+    Required Methods:
+    -------------
+    prepare_data:
+        Initializes the data set to be used as input in the fitting routine
+    process_dataset:
+        Processes the initialized data into the form used in the fitting routine
+    predict:
+        Runs the fitting routine and produces a prediction using the inputted data
     """
 
-    def __init__(self, collection):
-        # collection long term could be a individual SN or a SNCollection,
-        # make sure this works at some point
-        self.collection = collection
+    @abstractmethod
+    def prepare_data():
+        pass
+
+    @abstractmethod
+    def process_dataset():
+        pass
+
+    @abstractmethod
+    def predict():
+        pass
 
 
 class GP(Fitter):
@@ -57,7 +74,7 @@ class GP(Fitter):
             log_transform: bool = False
         ):
 
-        super().__init__(sne_collection)
+        self.collection = sne_collection
         self.kernel = kernel
         self.filtlist = filtlist
         self.use_fluxes = use_fluxes
@@ -153,7 +170,7 @@ class GP(Fitter):
 
             sn.cube = cube
 
-    def process_dataset_for_gp(
+    def process_dataset(
         self,
         filt,
         log_transform=False,
@@ -195,11 +212,11 @@ class GP(Fitter):
             wls.reshape(-1, 1),
         )
 
-    def run_gp(self, filt, test_size):
+    def run(self, filt, test_size):
 
         self.prepare_data()
 
-        phases, mags, errs, _ = self.process_dataset_for_gp(filt, log_transform=self.log_transform, sn_set=self.collection, use_fluxes=self.use_fluxes)
+        phases, mags, errs, _ = self.process_dataset(filt, log_transform=self.log_transform, sn_set=self.collection, use_fluxes=self.use_fluxes)
         X_train, _, Y_train, _, Z_train, _ = train_test_split(phases, mags, errs, test_size=test_size)
 
         ### Get array of errors at each timestep
@@ -227,9 +244,9 @@ class GP(Fitter):
 
         return gaussian_process, phases, mags, errs
 
-    def predict_gp(self, filt, test_size, plot=False):
+    def predict(self, filt, test_size, plot=False):
 
-        gaussian_process, phases, mags, errs = self.run_gp(filt, test_size)
+        gaussian_process, phases, mags, errs = self.run(filt, test_size)
 
         mean_prediction, std_prediction = gaussian_process.predict(sorted(phases), return_std=True)
 

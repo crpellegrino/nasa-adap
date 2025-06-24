@@ -211,7 +211,8 @@ class DataCube:
             convergence_threshold: float = 1.1,
             plot: bool = False, 
             verbose: bool = False,
-            save: bool = False
+            save: bool = False,
+            overwrite: bool = False,
         ):
 
         #TODO: Diagnostics on observed photometry versus mangled photometry
@@ -221,7 +222,7 @@ class DataCube:
             logger.error("Convergence threshold must be greater than 1")
             return
 
-        if save and os.path.exists(
+        if save and not overwrite and os.path.exists(
             os.path.join(
                     self.sn.base_path,
                     self.sn.classification,
