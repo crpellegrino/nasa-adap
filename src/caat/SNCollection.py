@@ -49,9 +49,11 @@ class SNCollection:
         self.subtypes = list(kwargs.keys())
 
         if isinstance(SNe, SN):
-            self.sne = SNe
+            self.sne = [SNe]
         else:
-            if isinstance(names, list):
+            if isinstance(SNe, list):
+                self.sne = [sn for sn in SNe]
+            elif isinstance(names, list):
                 self.sne = [SN(name) for name in names]
             else:
                 if type(sntype) is not None:

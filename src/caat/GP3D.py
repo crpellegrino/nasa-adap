@@ -350,7 +350,7 @@ class GP3D(GP):
                 if len(inds) > 0:
 
                     median_mag = np.median(template_df["Mag"][inds].values)
-                    iqr = np.subtract(*np.percentil(template_df["Mag"][inds], [75, 25]))
+                    iqr = np.subtract(*np.percentile(template_df["Mag"][inds], [75, 25]))
 
                     mag_grid[i, j] = median_mag
                     err_grid[i, j] = iqr
