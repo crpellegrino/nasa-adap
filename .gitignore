@@ -6,3 +6,4 @@ diagnostics/*
 .pylintrc
 **/.pylintrc
 .vscode/*
+data/test*
