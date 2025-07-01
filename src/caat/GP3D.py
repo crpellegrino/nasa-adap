@@ -407,12 +407,15 @@ class GP3D(GP):
             phase_grid_linear = np.arange(phasemin, phasemax, 1 / 24.0)  # Grid of phases to iterate over, by hour
             phase_grid = np.log(phase_grid_linear + log_transform)  # Grid of phases in log space
 
-            wl_grid_linear = np.arange(
-                min(self.wle[f] for f in filtlist) - 500,
-                max(self.wle[f] for f in filtlist) + 500,
-                99.5,
-            )  # Grid of wavelengths to iterate over, by 100 A
-            wl_grid = np.log10(wl_grid_linear)
+            wl_grid = np.arange(
+                np.log10(
+                    min(self.wle[f] for f in filtlist) - 500
+                ),
+                np.log10(
+                    max(self.wle[f] for f in filtlist) + 500
+                ),
+                0.01
+            )
 
         else:
             phase_grid = np.arange(phasemin, phasemax, 1 / 24.0)  # Grid of phases to iterate over, by hour
@@ -1045,7 +1048,7 @@ class GP3D(GP):
                     if (subtract_median or subtract_polynomial) and interactive:
                         use_for_template = input("Use this fit to construct a template? y/n")
                 
-                if subtract_median or subtract_polynomial:
+                if subtract_median or subtract_polynomial: #TODO: Remove this
                     x, y, wl_inds_fitted, phase_inds_fitted, phase_offset = self.build_test_wavelength_phase_grid_from_photometry(
                         residuals["Wavelength"].values, residuals["Phase"].values, wl_grid, phase_grid
                     )
@@ -1072,6 +1075,104 @@ class GP3D(GP):
                     ### and append to the gaussian processes array
                     test_prediction_reshaped = test_prediction.reshape((len(x), -1)) + template_mags
 
+                    ### ======================================================================================
+                    ### Compare photometry to prediction, iteratively shifting the wavelengths 
+                    ### of the prediction until it matches the photometry
+                    convergence_threshold = 1.1
+                    niter = 100
+
+                    for phase in residuals["Phase"].values:
+                        current_lc_inds = np.where((abs(residuals['Phase'] - phase) <= 0.1))[0]
+
+                        if len(current_lc_inds) > 0 and len({filt for filt in residuals['Filter'][current_lc_inds]}) > 1: 
+                            # We have data in at least two filters at this epoch
+                            current_lc_cube = residuals[abs(residuals['Phase'] - phase) <= 0.1]
+                            current_lc = current_lc_cube['Mag'].values
+                            current_lc = np.concatenate(([0.0], current_lc, [current_lc[-1]/2]))
+
+                            errors = np.ones(len(current_lc_inds)) * 100.0
+                            errors = np.concatenate(([1.0], errors, [1.0]))
+                            if self.log_transform is not False:
+                                wls = [np.log10(self.wle[filt] * (1 + sn.info.get("z", 0))) for filt in current_lc_cube["Filter"].values]
+                                wls = np.concatenate(([np.log10(10**min(wls) - 500)], wls, [np.log10(10**max(wls) + 500)]))
+                            else:
+                                wls = [self.wle[filt] * (1 + sn.info.get("z", 0)) for filt in current_lc_cube["Filter"].values]
+                                wls = np.concatenate(([min(wls) - 500], wls, [max(wls) + 500]))
+                            
+                            sed_inds_at_this_phase = np.where(
+                                (
+                                    wl_grid[wl_inds_fitted] > min(wls)
+                                ) & (
+                                    wl_grid[wl_inds_fitted] < max(wls)
+                                )
+                            )[0]
+                            phase_ind = np.argmin(abs(phase_grid[phase_inds_fitted] - phase))
+
+                            prediction_slice = np.copy(test_prediction_reshaped[sed_inds_at_this_phase, phase_ind])
+                            n = 0
+
+                            for i in range(niter):
+                                if all(errors <= convergence_threshold) or n == niter:
+                                    break
+
+                                for j, filt in enumerate(current_lc_cube['Filter']):
+
+                                    filt_wls = np.arange(np.log10(self.wle[filt] - 500), np.log10(self.wle[filt] + 500), 0.01)
+                                    sed_inds = np.where((wl_grid > min(filt_wls)) & (wl_grid < max(filt_wls)))[0]
+
+                                    ### Get overlap between the filter and the SED
+                                    if len(sed_inds) > 0:                                        
+                                        real_flux_inds = np.where((current_lc_cube['Filter'] == filt))[0]+1
+
+                                        if len(real_flux_inds) > 1:
+                                            real_mag = np.average(current_lc[real_flux_inds])
+                                        else:
+                                            real_mag = current_lc[real_flux_inds][0]
+
+                                        if self.log_transform is not False:
+                                            wl_for_filt = np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
+                                        else:
+                                            wl_for_filt = self.wle[filt] * (1 + sn.info.get("z", 0))
+                                        wl_ind = np.argmin(abs(wl_grid[wl_inds_fitted][sed_inds_at_this_phase] - wl_for_filt))
+                                        
+                                        predicted_mag = prediction_slice[wl_ind]#, phase_ind]
+
+                                        try:
+                                            # error = 1 + abs(1 - abs(predicted_mag/real_mag))
+                                            diff = real_mag - predicted_mag
+                                            if predicted_mag > 0:
+                                                error = 1 + diff
+                                            else:
+                                                error = 1 - diff
+                                        except ZeroDivisionError:
+                                            error = 100
+                                        
+                                        errors[j+1] = error
+
+                                    else:
+                                        ### No overlap between SED and filter, so break
+                                        n = niter
+
+                                if any(errors > convergence_threshold):
+                                    ### Warp the SED by an interpolation of the error across wavelength
+                                    ### and rerun the loop
+                                    if n < niter:
+                                        n += 1
+                                        if any(errors > 1e3) or any(np.isinf(errors)):
+                                            n = niter
+
+                                    interp_error_fn = interp1d(wls, errors)
+                                    interp_to_warp_by = interp_error_fn(wl_grid[wl_inds_fitted][sed_inds_at_this_phase])# * (1 + sn.info.get("z", 0)))
+                                    prediction_slice *= interp_to_warp_by
+
+                                    if n == niter:
+                                        logger.warning(f'Couldnt iterate to match flux! {sn.name}, {np.exp(phase) - self.log_transform}')
+                            
+                            if n < niter:
+                                # Put the warped SED back in the predicted datacube
+                                test_prediction_reshaped[sed_inds_at_this_phase, phase_ind] = prediction_slice
+                    ### ======================================================================================
+                    
                     test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
                     for i, col in enumerate(test_prediction_reshaped.T):
                         window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5) # Window size of approximately half a filter length scale
