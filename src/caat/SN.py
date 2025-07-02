@@ -137,7 +137,7 @@ class SN:
                 self.name + "_uvotB15.1.dat",
             )
         ):
-            logger.info(f"No Swift file for {self.name}")
+            logger.debug(f"No Swift file for {self.name}")
             return
 
         ### Magnitudes in the SOUSA output file are in Vega mags
@@ -308,7 +308,7 @@ class SN:
         sfd = SFDQuery()
 
         if not self.info.get("ra", "") or not self.info.get("dec", ""):
-            logger.warning(f"No coordinates for {self.name}")
+            logger.warning(f"No info for {self.name}, either no coordinates or no peak info")
             return
 
         coord = SkyCoord(ra=self.info["ra"] * u.deg, dec=self.info["dec"] * u.deg)
@@ -526,7 +526,7 @@ class SN:
                             break
 
                 if newfilt == "UVW1" and not self.info.get("peak_mjd", 0) > 0:
-                    logger.warning(f"Reached last filter and could not fit for peak for {self.name}")
+                    logger.debug(f"Reached last filter and could not fit for peak for {self.name}")
                     self.info["searched"] = True
 
         if not self.info.get("peak_mag", 0) > 0:
