@@ -1,12 +1,7 @@
 import pytest
-from sklearn.gaussian_process.kernels import RBF
 from caat.GP3D import GP3D
 from unittest.mock import Mock
 
-
-@pytest.fixture
-def mock_kernel() -> RBF:
-    return RBF()
 
 @pytest.fixture
 def mock_gp3d(mock_sncollection, mock_kernel) -> GP3D:

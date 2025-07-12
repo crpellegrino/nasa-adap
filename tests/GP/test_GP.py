@@ -1,108 +1,82 @@
-from caat import SNCollection, GP, RBFKernel
+import pytest
+import numpy as np
+import pandas as pd
+from sklearn.gaussian_process import GaussianProcessRegressor
+
+from unittest.mock import patch, Mock
 
 
-def test_gp_init():
-    sncollection = SNCollection(sntype='SESNe', snsubtype='SNIIb')
-    kernel = RBFKernel(5.0, [1.0, 100.0]).kernel
-    gp = GP(sncollection, kernel)
+class TestGP:
 
-    assert len(gp.collection.sne) == len(sncollection.sne)
-    assert kernel.get_params == gp.kernel.get_params
+    @pytest.fixture(autouse=True)
+    def setup(self, mock_gp):
+        self.phasemin = -20
+        self.phasemax = 50
+        self.gp = mock_gp
+        self.phase_grid = np.arange(0.5, 5.0, 0.1)
+        self.wl_grid = np.arange(2000.0, 8000.0, 100.0)
 
-def test_process_dataset_for_gp():
-    sncollection = SNCollection(sntype='SESNe', snsubtype='SNIIb')
-    kernel = RBFKernel(5.0, [1.0, 100.0]).kernel
-    gp = GP(sncollection, kernel)
+    def test_prepare_data(self, mock_datacube):
+        with patch(
+            "os.path.join", Mock(return_value=None)
+        ), patch(
+            "os.path.exists", Mock(return_value=True)
+        ), patch("pandas.read_csv", return_value=mock_datacube):
+            self.gp.prepare_data()
+            assert isinstance(self.gp.collection.sne[0].cube, pd.DataFrame)
+        
+    def test_prepare_data_with_log_transform(self, mock_datacube, mock_log_transformed_gp):
+        self.gp = mock_log_transformed_gp
+        with patch(
+            "os.path.join", Mock(return_value=None)
+        ), patch(
+            "os.path.exists", Mock(return_value=True)
+        ), patch("pandas.read_csv", return_value=mock_datacube):
+            self.gp.prepare_data()
+            assert isinstance(self.gp.collection.sne[0].cube, pd.DataFrame)
 
-    phases, mags, errs, wls  = (
-        gp.process_dataset_for_gp(
-            'V',
-            -20,
-            50
+    def test_process_dataset(self):
+        """Test process_dataset method"""
+        phases, wls, mags, errs = self.gp.process_dataset("B")
+        assert all([isinstance(arr, np.ndarray) for arr in [phases, wls, mags, errs]])
+
+    def test_run_gp(self, mock_process_data_result):
+        with patch(
+            "caat.GP.GP.process_dataset", Mock(return_value=mock_process_data_result)
+        ), patch(
+            "sklearn.gaussian_process.GaussianProcessRegressor.fit", Mock(return_value=None)
+        ):
+            gp, phases, mags, errs = self.gp.run("B", 0.9)
+            assert isinstance(gp, GaussianProcessRegressor)
+            assert phases.shape == mags.shape == errs.shape
+
+    @patch("sklearn.gaussian_process.GaussianProcessRegressor.predict")
+    def test_predict_gp(self, mock_gp_predict, mock_process_data_result):
+        mock_gp_predict.return_value=(
+            np.random.rand(10),
+            np.random.rand(10),
         )
-    )
-    assert len(phases) > 0 and len(mags) > 0 and len(errs) > 0 and len(wls) > 0
-    assert len(phases) == len(mags) == len(errs) == len(wls)
+        with patch(
+            "caat.GP.GP.process_dataset", Mock(return_value=mock_process_data_result)
+        ), patch(
+            "sklearn.gaussian_process.GaussianProcessRegressor.fit", Mock(return_value=None)
+        ):
+            self.gp.predict("B", 0.9)
+            mock_gp_predict.assert_called_once()
 
-def test_gp_with_fluxes():
-    sncollection = SNCollection(sntype='SESNe', snsubtype='SNIIb')
-    kernel = RBFKernel(5.0, [1.0, 100.0]).kernel
-    gp = GP(sncollection, kernel)
-
-    _, mags, _, _  = (
-        gp.process_dataset_for_gp(
-            'V',
-            -20,
-            50,
-            use_fluxes=True
+    @patch("sklearn.gaussian_process.GaussianProcessRegressor.predict")
+    def test_predict_gp_should_plot(self, mock_gp_predict, mock_process_data_result):
+        mock_gp_predict.return_value=(
+            np.random.rand(10),
+            np.random.rand(10),
         )
-    )
-    assert all([m < 10 for m in mags])
-
-def test_gp_with_log_transform():
-    sncollection = SNCollection(sntype='SESNe', snsubtype='SNIIb')
-    kernel = RBFKernel(5.0, [1.0, 100.0]).kernel
-    gp = GP(sncollection, kernel)
-
-    log_mjds, _, _, _  = (
-        gp.process_dataset_for_gp(
-            'V',
-            -20,
-            50,
-            log_transform=30
-        )
-    )
-
-    mjds, _, _, _  = (
-        gp.process_dataset_for_gp(
-            'V',
-            -20,
-            50,
-        )
-    )
-    assert len(mjds) == len(log_mjds)
-    assert all([mjd > 0 for mjd in log_mjds])
-
-def test_run_gp():
-    sncollection = SNCollection(sntype='SESNe', snsubtype='SNIIb')
-    kernel = RBFKernel(5.0, [1.0, 100.0]).kernel
-    gp = GP(sncollection, kernel)
-
-    ### Test all boolean combinations of log_transform and use_flux
-    for log_transform in [False, 30]:
-        for use_flux in [False, True]:
-
-            gaussian_process, _, _, _ = gp.run_gp(
-                'V', 
-                -20, 
-                50, 
-                0.9, 
-                log_transform=log_transform, 
-                sn_set=sncollection.sne, 
-                use_fluxes=use_flux
-            )
-
-            assert len(gaussian_process.kernel_.theta) == len(kernel.theta)
-
-def test_predict_gp():
-    sncollection = SNCollection(sntype='SESNe', snsubtype='SNIIb')
-    kernel = RBFKernel(5.0, [1.0, 100.0]).kernel
-    gp = GP(sncollection, kernel)
-
-    ### Test all boolean combinations of log_transform and use_flux
-    for log_transform in [False, 30]:
-        for use_flux in [False, True]:
-            gaussian_process, phases, _, _ = gp.run_gp(
-                'V', 
-                -20, 
-                50, 
-                0.9, 
-                log_transform=log_transform, 
-                sn_set=sncollection.sne, 
-                use_fluxes=use_flux
-            )
-
-            mean_prediction = gaussian_process.predict(sorted(phases))
-            assert len(phases) == len(mean_prediction)
-
-
+        mock_plot_gp = Mock(return_value=None)
+        with patch(
+            "caat.GP.GP.process_dataset", Mock(return_value=mock_process_data_result)
+        ), patch(
+            "sklearn.gaussian_process.GaussianProcessRegressor.fit", Mock(return_value=None)
+        ), patch(
+            "caat.Plot.Plot.plot_gp_predict_gp", mock_plot_gp
+        ):
+            self.gp.predict("B", 0.9, plot=True)
+            mock_plot_gp.assert_called_once()

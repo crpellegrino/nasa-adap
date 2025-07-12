@@ -45,15 +45,15 @@ class Fitter(ABC):
 
     @abstractmethod
     def prepare_data():
-        pass
+        raise NotImplementedError("Subclasses must implement this method.")  # pragma: no cover
 
     @abstractmethod
     def process_dataset():
-        pass
+        raise NotImplementedError("Subclasses must implement this method.")  # pragma: no cover
 
     @abstractmethod
     def predict():
-        pass
+        raise NotImplementedError("Subclasses must implement this method.")  # pragma: no cover
 
 
 class GP(Fitter):

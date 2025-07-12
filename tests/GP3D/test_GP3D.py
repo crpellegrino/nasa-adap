@@ -118,8 +118,8 @@ class TestGP3D:
         )
 
         assert len(x) == len(y)
-        assert isinstance(wl_inds_fitted, list)
-        assert isinstance(phase_inds_fitted, list)
+        assert isinstance(wl_inds_fitted, list | np.ndarray)
+        assert isinstance(phase_inds_fitted, list | np.ndarray)
         assert isinstance(min_phase, float | None)
 
     def test_optimize_hyperparameters(self):
