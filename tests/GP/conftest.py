@@ -5,17 +5,6 @@ import numpy as np
 @pytest.fixture
 def mock_gp(mock_sncollection, mock_kernel) -> GP:
     mock_gp = GP(
-        sne_collection=mock_sncollection, 
-        kernel=mock_kernel, 
-        filtlist=['B'], 
-        phasemin=-20,
-        phasemax=50,
-    )    
-    return mock_gp
-
-@pytest.fixture
-def mock_log_transformed_gp(mock_sncollection, mock_kernel) -> GP:
-    mock_gp = GP(
         sne_collection=mock_sncollection,
         kernel=mock_kernel,
         filtlist=["B"],

@@ -11,6 +11,7 @@ def mock_gp3d(mock_sncollection, mock_kernel) -> GP3D:
         filtlist=['B'], 
         phasemin=-20,
         phasemax=50,
+        log_transform=22,
         set_to_normalize=mock_sncollection,
     )
     mock_gp.prepare_data = Mock(return_value=None)

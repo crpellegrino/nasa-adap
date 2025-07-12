@@ -33,9 +33,12 @@ def mock_datacube() -> pd.DataFrame:
             "ShiftedMag": np.asarray([0.2, 0.0, 0.1]),
             "Magerr": np.asarray([0.1, 0.1, 0.1]),
             "Flux": np.asarray([0.2, 0.01, 0.1]),
+            "ShiftedFlux": np.asarray([0.2, 0.01, 0.1]),
             "FluxErr": np.asarray([0.1, 0.1, 0.1]),
+            "ShiftedFluxerr": np.asarray([0.1, 0.1, 0.1]),
             "Nondetection": np.asarray([False, False, False]),
             "ShiftedWavelength": np.asarray([5050.0, 5000.0, 5000.0]),
+            "LogShiftedWavelength": np.log10(np.asarray([5050.0, 5000.0, 5000.0])),
         }
     )
 
