@@ -16,7 +16,8 @@ from astropy.coordinates import SkyCoord
 from astropy.convolution import convolve
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
-from scipy.stats import iqr
+from scipy.stats import iqr, norm
+import random
 
 from .GP import GP
 from .Plot import Plot
@@ -855,13 +856,24 @@ class GP3D(GP):
         phases_fit: np.ndarray,
         sn: SN,
         convergence_threshold: float = 1.1,
-        niter: float = 100
+        niter: float = 100,
     ):
         """
         Compare photometry to prediction, iteratively warping the 
         predicted flux until it matches the photometry
         """
-        for phase in residuals["Phase"].values:
+        phases_to_iterate_over = np.log(
+            np.arange(
+                min(np.exp(
+                    residuals["Phase"].values
+                ) - self.log_transform), 
+                max(np.exp(
+                    residuals["Phase"].values
+                ) - self.log_transform),
+                0.5
+            )
+        )
+        for phase in phases_to_iterate_over:
             current_lc_inds = np.where((abs(residuals['Phase'] - phase) <= 0.1))[0]
 
             if len(current_lc_inds) > 0 and len({filt for filt in residuals['Filter'][current_lc_inds]}) > 1: 
@@ -942,6 +954,26 @@ class GP3D(GP):
                     test_prediction_reshaped[sed_inds_at_this_phase, phase_ind] = prediction_slice
         
         return test_prediction_reshaped
+    
+    def sample_predicted_sed(self, mean_prediction, std_prediction):
+        """Randomly sample the predicted SED for better uncertainty estimate in final GP surface"""
+        # ### Draw from unit normal distribution
+        # val = np.random.randn()
+
+        # ### Get percentile of that random draw
+        # gaussian_distr = np.sort(np.random.randn(1000))
+        # percentile = len(gaussian_distr[gaussian_distr < val]) / len(gaussian_distr)
+
+        # ### Turn percentile into std deviation
+        # ### For a standard normal distribution, z_score = sigma
+        # sigma = norm.ppf(percentile)
+
+        ### Return the median GP +/- n sigma 
+
+        ### Draw random sigma between -1 and 1
+        sigma = random.uniform(-1, 1)
+        sampled_prediction = mean_prediction + (sigma * std_prediction)
+        return sampled_prediction
 
     def run_gp_individually(
         self,
@@ -1176,7 +1208,8 @@ class GP3D(GP):
                     test_prediction_reshaped,
                     wl_grid[wl_inds_fitted],
                     phase_grid[phase_inds_fitted],
-                    sn
+                    sn,
+                    convergence_threshold=1.05,
                 )
                 
                 test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
@@ -1186,6 +1219,12 @@ class GP3D(GP):
                         window_size += 1 # Must be odd
                     # Use astropy convolve function to handle NaNs
                     test_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend') # Boxcar smoothing
+                
+                for i, col in enumerate(test_prediction_reshaped):
+                    window_size = max(int(round(len(col) / (len(phase_grid/(5*24))), 0)), 5) # Window size of approximate a day
+                    if window_size % 2 == 0:
+                        window_size += 1
+                    test_prediction_smoothed[i, :] = convolve(col, np.ones(window_size) / window_size, boundary='extend')
 
                 std_prediction_reshaped = std_prediction.reshape((len(x), -1)) + template_mags
                 std_prediction_smoothed = np.empty(std_prediction_reshaped.shape)
@@ -1203,6 +1242,13 @@ class GP3D(GP):
                         current_phase_grid_ind = phase_inds_fitted[j]
                         gp_grid[current_wl_grid_ind, current_phase_grid_ind] = col[j]
 
+                gp_grid_std = np.empty((len(wl_grid), len(phase_grid)))
+                gp_grid_std[:] = np.nan
+                for i, col in enumerate(std_prediction_smoothed[:,]):
+                    current_wl_grid_ind = wl_inds_fitted[i]
+                    for j in range(len(col)):
+                        current_phase_grid_ind = phase_inds_fitted[j]
+                        gp_grid_std[current_wl_grid_ind, current_phase_grid_ind] = col[j]
                 if plot:
                     Plot().plot_run_gp_surface(
                         gp_class=self,
@@ -1235,7 +1281,9 @@ class GP3D(GP):
                     use_for_template = "y"
 
                 if use_for_template == "y":
-                    gaussian_processes.append(gp_grid)
+                    for i in range(30):
+                        random_sample = self.sample_predicted_sed(gp_grid, gp_grid_std)
+                        gaussian_processes.append(random_sample)
 
         return gaussian_processes, phase_grid, wl_grid
 
@@ -1309,11 +1357,19 @@ class GP3D(GP):
                 median_gp[:,i] = savgol_filter(col, 51, 3)
             median_gp = median_gp.T
 
+            median_gp = self.interpolate_grid(median_gp, phase_grid, filter_window=171)
+            for i, col in enumerate(median_gp):
+                median_gp[i, :] = savgol_filter(col, 51, 3)
+
             iqr_grid = iqr(np.dstack(gaussian_processes), axis=-1, nan_policy='omit')
             iqr_grid = self.interpolate_grid(iqr_grid.T, wl_grid, filter_window=31)
             for i, col in enumerate(iqr_grid.T):
                 iqr_grid[:,i] = savgol_filter(col, 51, 3)
             iqr_grid = iqr_grid.T
+
+            iqr_grid = self.interpolate_grid(iqr_grid, phase_grid, filter_window=171)
+            for i, col in enumerate(iqr_grid):
+                iqr_grid[i, :] = savgol_filter(col, 51, 3)
             
             Z = median_gp
 
