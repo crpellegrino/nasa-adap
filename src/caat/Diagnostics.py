@@ -23,7 +23,6 @@ class Diagnostic:
             mags,
             errs, 
             nsigma=3,
-            log_transform=None
     ):
         """
         Check the goodness of fit by finding
@@ -35,23 +34,13 @@ class Diagnostic:
         for i, phase in enumerate(phases):
             gp_ind = np.argmin(abs(gp_times - phase))
             if abs(mags[i] - gp_prediction[gp_ind]) > nsigma * (errs[i] + gp_std_deviation[gp_ind]):
-                if log_transform is not None:
-                    outliers.append(
-                        {
-                            'phase': round(phase, 2),
-                            'mag': round(mags[i], 2),
-                            'err': round(errs[i], 2)
-                        }
-                    )
-
-                else:
-                    outliers.append(
-                        {
-                            'phase': round(phase, 2),
-                            'mag': round(mags[i], 2),
-                            'err': round(errs[i], 2)
-                        }
-                    )
+                outliers.append(
+                    {
+                        'phase': round(phase, 2),
+                        'mag': round(mags[i], 2),
+                        'err': round(errs[i], 2)
+                    }
+                )
         
         if len(outliers) > 0:
             logger.warning('WARNING: Outlier points identified for filter {}: {}'.format(filt, outliers))
@@ -62,7 +51,6 @@ class Diagnostic:
             gp_times,
             gp_prediction,
             phases,
-            use_fluxes=False
     ):
         """
         Verify that the late-time slope of the
@@ -78,12 +66,12 @@ class Diagnostic:
         if last_phase > 0 and second_to_last_phase > 0:
             ### Check that the GP fit between the last two data points is decreasing in brightness
             gp_slope = (gp_prediction[last_phase_ind] - gp_prediction[second_to_last_phase_ind]) / (last_phase - second_to_last_phase)
-            if (use_fluxes and gp_slope > 0.0) or (not use_fluxes and gp_slope < 0.0):
+            if gp_slope > 0.0:
                 logger.warning(f'WARNING: Late-time slope of the GP is increasing for filter {filt}')
 
             ### Check that the GP fit extrapolation after the last data point is decreasing in brightness
             gp_extrapolation = (gp_prediction[-1] - gp_prediction[last_phase_ind]) / (gp_times[-1] - last_phase)
-            if (use_fluxes and gp_extrapolation > 0.0) or (not use_fluxes and gp_extrapolation < 0.0):
+            if gp_extrapolation > 0.0:
                 logger.warning(f'WARNING: GP extrapolation at late times is increasing for filter {filt}')
 
     def check_gradient_between_filters(

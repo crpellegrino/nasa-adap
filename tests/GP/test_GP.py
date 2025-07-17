@@ -24,16 +24,6 @@ class TestGP:
         ), patch("pandas.read_csv", return_value=mock_datacube):
             self.gp.prepare_data()
             assert isinstance(self.gp.collection.sne[0].cube, pd.DataFrame)
-        
-    def test_prepare_data_with_log_transform(self, mock_datacube, mock_log_transformed_gp):
-        self.gp = mock_log_transformed_gp
-        with patch(
-            "os.path.join", Mock(return_value=None)
-        ), patch(
-            "os.path.exists", Mock(return_value=True)
-        ), patch("pandas.read_csv", return_value=mock_datacube):
-            self.gp.prepare_data()
-            assert isinstance(self.gp.collection.sne[0].cube, pd.DataFrame)
 
     def test_process_dataset(self):
         """Test process_dataset method"""

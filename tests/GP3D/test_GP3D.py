@@ -12,7 +12,7 @@ class TestGP3D:
         self.phasemax = 50
         self.gp = mock_gp3d
         self.phase_grid = np.arange(0.5, 5.0, 0.1)
-        self.wl_grid = np.arange(2000.0, 8000.0, 100.0)
+        self.wl_grid = np.log10(np.arange(2000.0, 8000.0, 100.0))
     
     def test_build_samples(self):
         """Test build_samples method"""
@@ -25,14 +25,13 @@ class TestGP3D:
                 np.asarray([3.5, 3.5])
             )
         )):
-            for log_transform in [False, 22]:
-                for use_flux in [False, True]:
-                    phases, wls, mags, err_grid = (
-                        self.gp.build_samples('B', log_transform=log_transform, use_fluxes=use_flux)
-                    )
 
-                    assert all([isinstance(var, np.ndarray) for var in [phases, mags, wls, err_grid]])
-                    assert len(phases) == len(mags) == len(wls) == len(err_grid)
+            phases, wls, mags, err_grid = (
+                self.gp.build_samples('B')
+            )
+
+            assert all([isinstance(var, np.ndarray) for var in [phases, mags, wls, err_grid]])
+            assert len(phases) == len(mags) == len(wls) == len(err_grid)
 
     def test_process_dataset(self):
         """Test process_dataset method"""
@@ -49,7 +48,6 @@ class TestGP3D:
                 mock_datacube,
                 log_transform=22,
                 plot=False,
-                use_fluxes=True,
             )
         )
 
@@ -66,7 +64,6 @@ class TestGP3D:
                 mock_datacube,
                 log_transform=22,
                 plot=False,
-                use_fluxes=True,
             )
         )
 
@@ -82,8 +79,6 @@ class TestGP3D:
             self.wl_grid,
             np.random.random((len(self.phase_grid), len(self.wl_grid))),
             np.ones((len(self.phase_grid), len(self.wl_grid))) * 0.01,
-            log_transform=22,
-            use_fluxes=True
         )
 
         assert isinstance(residuals, pd.DataFrame)
@@ -111,8 +106,8 @@ class TestGP3D:
             phase_inds_fitted, 
             min_phase
         ) = self.gp.build_test_wavelength_phase_grid_from_photometry(
-            mock_datacube["Wavelength"].values,
-            mock_datacube["Phase"].values,
+            mock_datacube["LogShiftedWavelength"].values,
+            mock_datacube["LogPhase"].values,
             self.wl_grid,
             self.phase_grid,
         )

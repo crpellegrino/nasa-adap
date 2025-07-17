@@ -41,8 +41,6 @@ class Plot:
         filts_to_plot,
         plot_fluxes=False,
     ):
-        sn = sn_class
-
         fig, ax = plt.subplots()
 
         for f in filts_to_plot:
@@ -116,8 +114,6 @@ class Plot:
         to shift the lightcurve over,
         and returns estimates of the peak MJD and mag at peak
         """
-        sn = sn_class
-
         fig, ax = plt.subplots()
 
         ax.errorbar(mjd_array, mag_array, yerr=err_array, fmt="o", color="black")
@@ -133,7 +129,7 @@ class Plot:
             plt.ylim(min(mag_array[inds_to_fit]) - 0.5, max(mag_array[inds_to_fit]) + 0.5)
         plt.xlabel("MJD")
         plt.ylabel("Apparent Magnitude")
-        plt.title(sn.name)
+        plt.title(sn_class.name)
         plt.legend()
         plt.gca().invert_yaxis()
 
@@ -156,6 +152,7 @@ class Plot:
         plt.xlabel("Shifted Time [days]")
         plt.ylabel("Shifted Magnitude")
         plt.title(sn.name + "-Shifted Data")
+        plt.gca().invert_yaxis()
         plt.legend()
         plt.show()
 
@@ -204,9 +201,7 @@ class Plot:
         plt.title("Lightcurves for collection of {} objects\nType:{}, Subtype:{}".format(len(sne), sn_class.type, sn_class.subtype))
         plt.show()
 
-    def plot_gp_predict_gp(self, gp_class, phases, mean_prediction, std_prediction, mags, errs, filt, use_fluxes=False):
-        gp = gp_class
-
+    def plot_gp_predict_gp(self, phases, mean_prediction, std_prediction, mags, errs, filt, use_fluxes=False):
         fig, ax = plt.subplots()
         ax.plot(sorted(phases), mean_prediction, color="k", label="GP fit", zorder=10)
         ax.errorbar(phases, mags.reshape(-1), errs.reshape(-1), fmt="o", color=colors.get(filt, "k"), alpha=0.2, label=filt, zorder=0)
@@ -245,9 +240,7 @@ class Plot:
         mag_grid=None,
         wl_grid=None,
         err_grid=None,
-        log_transform=None,
         filtlist=None,
-        use_fluxes=False,
     ):
         """
         :input grid_type: takes str object 'median' or 'poly', default=None
@@ -265,11 +258,7 @@ class Plot:
         ax.set_xlabel("Phase Grid")
         ax.set_ylabel("Wavelengths [Angstroms]")
 
-        if use_fluxes:
-            ax.set_zlabel("Flux")
-        else:
-            ax.invert_zaxis()
-            ax.set_zlabel("Magnitude")
+        ax.set_zlabel("Flux")
 
         if grid_type == "polynomial":
             ax.set_title("Polynomial Grid / Templates")
@@ -284,10 +273,7 @@ class Plot:
 
         if grid_type == "median":
             for filt in filtlist:
-                if log_transform is not False:
-                    wl_inds = np.where((abs(10**wl_grid - gpc.wle[filt]) <= 100))[0]
-                else:
-                    wl_inds = np.where((abs(wl_grid - gpc.wle[filt]) <= 100))[0]
+                wl_inds = np.where((abs(10**wl_grid - gpc.wle[filt]) <= 100))[0]
 
                 plt.errorbar(
                     phase_grid,
@@ -295,24 +281,18 @@ class Plot:
                     yerr=abs(err_grid[:, wl_inds[0]]),
                     fmt="o",
                 )
-                if not use_fluxes:
-                    plt.gca().invert_yaxis()
                 plt.title(filt)
                 # plt.show()
 
 
     def plot_subtract_data_from_grid(
         self,
-        gp_class,
         sn_class,
         phase_grid,
         mag_grid,
         wl_ind,
         filt,
-        log_transform,
-        use_fluxes=False,
     ):
-        gpc = gp_class
         sn = sn_class
 
         fig, ax = plt.subplots()
@@ -329,15 +309,8 @@ class Plot:
             label="data",
             alpha=0.5,
         )
-        if log_transform is not None:
-            ax.set_xlabel("Log(Time)")
-        else:
-            ax.set_xlabel("Time [days]")
-        if use_fluxes:
-            ax.set_ylabel("Flux relative to peak")
-        else:
-            plt.gca().invert_yaxis()
-            ax.set_ylabel("Magnitude relative to Peak Mag")
+        ax.set_xlabel("Log(Time)")
+        ax.set_ylabel("Flux relative to peak")
         ax.set_title("Template Subtraction for {} in {}-band".format(sn.name, filt))
         plt.legend()
         # plt.show()
@@ -351,14 +324,8 @@ class Plot:
         std_prediction,
         template_mags,
         residuals,
-        phase_residuals,
-        wl_residuals,
-        err_residuals,
-        inds_to_fit,
         log_transform,
         filt,
-        use_fluxes,
-        key_to_plot,
     ):
         sn = sn_class
 
@@ -376,83 +343,40 @@ class Plot:
             color=colors.get(filt, "k"),
         )
 
-        if log_transform is not False:
-            ax.errorbar(
-                np.exp(
-                    residuals["Phase"].values
-                )
-                - log_transform,
-                residuals["Mag"].values,
-                yerr=residuals["MagErr"].values,
-                fmt="o",
-                color=colors.get(filt, "k"),
-                mec="k",
+        ax.errorbar(
+            np.exp(
+                residuals["Phase"].values
             )
+            - log_transform,
+            residuals["Mag"].values,
+            yerr=residuals["MagErr"].values,
+            fmt="o",
+            color=colors.get(filt, "k"),
+            mec="k",
+        )
 
-            ax.scatter(
-                np.exp(
-                    residuals["Phase"].values
-                )
-                - log_transform,
-                residuals["Mag"].values,
-                marker="v",
-                color=colors.get(filt, "k"),
-                alpha=0.5,
+        ax.scatter(
+            np.exp(
+                residuals["Phase"].values
             )
-
-        else:
-            ax.errorbar(
-                phase_residuals[wl_residuals == self.wle[filt] * (1 + sn.info.get("z", 0))],
-                np.asarray([p[key_to_plot] for p in sn.shifted_data[filt]])[inds_to_fit],
-                yerr=err_residuals[wl_residuals == self.wle[filt] * (1 + sn.info.get("z", 0))],
-                fmt="o",
-                color=colors.get(filt, "k"),
-                mec="k",
-            )
-
-        if not use_fluxes:
-            ax.invert_yaxis()
-            ax.set_ylabel("Magnitude Relative to Peak")
-        else:
-            ax.set_ylabel("Flux Relative to Peak")
-
+            - log_transform,
+            residuals["Mag"].values,
+            marker="v",
+            color=colors.get(filt, "k"),
+            alpha=0.5,
+        )
+        
         ax.set_xlabel("Normalized Time [days]")
+        ax.set_ylabel("Flux Relative to Peak")
         plt.title(sn.name)
         plt.legend()
 
-    def plot_run_gp_surface(self, gp_class, x, y, test_prediction_reshaped, use_fluxes=False):
+    def plot_run_gp_surface(self, gp_class, x, y, test_prediction_reshaped):
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         ax.plot_surface(x, y, test_prediction_reshaped)
         ax.set_xlabel("Phase Grid")
         ax.set_ylabel("Wavelengths")
-        if use_fluxes:
-            ax.set_zlabel("Fluxes")
-        else:
-            ax.invert_zaxis()
-            ax.set_zlabel("Magnitude")
+        ax.set_zlabel("Fluxes")
         plt.tight_layout()
-        plt.show()
-
-    def plot_predict_gp(self, fig, ax, gp_class, test_prediction, std_prediction, log_transform, filt, use_fluxes=False):
-        gpc = gp_class
-
-        if log_transform is not False:
-            test_times = np.exp(test_times) - log_transform
-        ax.plot(test_times, test_prediction, label=filt)
-        ax.fill_between(
-            test_times,
-            test_prediction - 1.96 * std_prediction,
-            test_prediction + 1.96 * std_prediction,
-            alpha=0.2,
-        )
-
-        if use_fluxes:
-            ax.set_ylabel("Flux relative to peak")
-        else:
-            ax.invert_yaxis()
-            ax.set_ylabel("Normalized Magnitude")
-        ax.set_xlabel("Normalized Time [days]")
-        plt.title("3D GP Fit")
-        plt.legend()
         plt.show()

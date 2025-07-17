@@ -69,18 +69,16 @@ class GP(Fitter):
             kernel: Union[RBFKernel, WhiteKernel, MaternKernel],
             filtlist: list,
             phasemin: int, 
-            phasemax: int, 
-            use_fluxes: bool = False, 
-            log_transform: bool = False
+            phasemax: int,
+            log_transform: float, 
         ):
 
         self.collection = sne_collection
         self.kernel = kernel
         self.filtlist = filtlist
-        self.use_fluxes = use_fluxes
-        self.log_transform = log_transform
         self.phasemin = phasemin
         self.phasemax = phasemax
+        self.log_transform = log_transform
 
     def prepare_data(self):
         """
@@ -127,11 +125,10 @@ class GP(Fitter):
             inds_to_drop_filts = cube.loc[~cube['Filter'].isin(self.filtlist)].index
             cube = cube.drop(inds_to_drop_filts).reset_index(drop=True)
 
-            # Log transform the data (as a separate column), if desired
-            if self.log_transform is not False:
-                cube['LogPhase'] = np.log(cube['Phase'].values.astype(float) + self.log_transform)
-                cube['LogWavelength'] = np.log10(cube['Wavelength'].values.astype(float))
-                cube['LogShiftedWavelength'] = np.log10(cube['ShiftedWavelength'].values.astype(float))
+            # Log transform the data (as a separate column)
+            cube['LogPhase'] = np.log(cube['Phase'].values.astype(float) + self.log_transform)
+            cube['LogWavelength'] = np.log10(cube['Wavelength'].values.astype(float))
+            cube['LogShiftedWavelength'] = np.log10(cube['ShiftedWavelength'].values.astype(float))
             
             # Drop nondetections that are within the phase range and less constraining
             # than the first or last detection in each filter
@@ -173,9 +170,7 @@ class GP(Fitter):
     def process_dataset(
         self,
         filt,
-        log_transform=False,
         sn_set=None,
-        use_fluxes=False,
     ):
         """
         Loads all the data, shifts the data to peak,
@@ -195,10 +190,10 @@ class GP(Fitter):
 
         for sn in sn_set.sne:
 
-            current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Phase'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
-            current_mags = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedMag'].values if use_fluxes is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFlux']
-            current_errs = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Magerr'].values if use_fluxes is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['Fluxerr'] if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFluxerr']
-            current_wls = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedWavelength'].values if log_transform is False else sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogShiftedWavelength'].values
+            current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
+            current_mags = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFlux']
+            current_errs = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFluxerr']
+            current_wls = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogShiftedWavelength'].values
 
             phases = np.concatenate((phases, current_phases))
             mags = np.concatenate((mags, current_mags))
@@ -216,7 +211,7 @@ class GP(Fitter):
 
         self.prepare_data()
 
-        phases, mags, errs, _ = self.process_dataset(filt, log_transform=self.log_transform, sn_set=self.collection, use_fluxes=self.use_fluxes)
+        phases, mags, errs, _ = self.process_dataset(filt, sn_set=self.collection)
         X_train, _, Y_train, _, Z_train, _ = train_test_split(phases, mags, errs, test_size=test_size)
 
         ### Get array of errors at each timestep
@@ -252,7 +247,6 @@ class GP(Fitter):
 
         if plot:
             Plot().plot_gp_predict_gp(
-                gp_class=self,
                 phases=phases,
                 mean_prediction=mean_prediction,
                 std_prediction=std_prediction,
