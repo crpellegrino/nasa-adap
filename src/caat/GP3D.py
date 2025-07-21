@@ -986,11 +986,9 @@ class GP3D(GP):
                         filts_fitted.append(filt)
 
                         if plot:
-                            key_to_plot = "flux"
                             try:
                                 Plot().plot_run_gp_overlay(
                                     ax=ax,
-                                    sn_class=sn,
                                     test_times=test_times,
                                     test_prediction=test_prediction,
                                     std_prediction=std_prediction,
@@ -998,6 +996,7 @@ class GP3D(GP):
                                     residuals=residuals_for_filt,
                                     log_transform=self.log_transform,
                                     filt=filt,
+                                    sn_class=sn,
                                 )
                             except:
                                 continue
@@ -1133,7 +1132,7 @@ class GP3D(GP):
                         random_sample = self.sample_predicted_sed(gp_grid, gp_grid_std)
                         gaussian_processes.append(random_sample)
 
-        return gaussian_processes, phase_grid, wl_grid
+        return gaussian_processes, mag_grid, phase_grid, wl_grid
 
     def predict(
         self,
@@ -1176,7 +1175,7 @@ class GP3D(GP):
 
         else:
             ### We're fitting each SN individually and then median combining the full 2D GP
-            gaussian_processes, phase_grid, wl_grid = self.run_gp_individually(
+            gaussian_processes, mag_grid, phase_grid, wl_grid = self.run_gp_individually(
                 plot=plot,
                 subtract_median=subtract_median,
                 subtract_polynomial=subtract_polynomial,
@@ -1222,10 +1221,12 @@ class GP3D(GP):
             surface = SurfaceArray(
                 surface = np.asarray([median_gp, iqr_grid]),
                 phase_grid=phase_grid,
-                wl_grid = wl_grid
+                wl_grid = wl_grid,
+                kernel=self.kernel
             )
             snmodel = SNModel(
                 surface=surface,
+                template_mags=mag_grid,
                 phase_grid=np.exp(phase_grid)-self.log_transform,
                 wl_grid=10**(wl_grid),
                 filters_fit=self.filtlist,

@@ -318,7 +318,6 @@ class Plot:
     def plot_run_gp_overlay(
         self,
         ax,
-        sn_class,
         test_times,
         test_prediction,
         std_prediction,
@@ -326,8 +325,10 @@ class Plot:
         residuals,
         log_transform,
         filt,
+        sn_class = None,
     ):
-        sn = sn_class
+        if sn_class:
+            sn = sn_class
 
         ax.plot(
             test_times,
@@ -354,21 +355,11 @@ class Plot:
             color=colors.get(filt, "k"),
             mec="k",
         )
-
-        ax.scatter(
-            np.exp(
-                residuals["Phase"].values
-            )
-            - log_transform,
-            residuals["Mag"].values,
-            marker="v",
-            color=colors.get(filt, "k"),
-            alpha=0.5,
-        )
         
         ax.set_xlabel("Normalized Time [days]")
         ax.set_ylabel("Flux Relative to Peak")
-        plt.title(sn.name)
+        if sn_class:
+            plt.title(sn.name)
         plt.legend()
 
     def plot_run_gp_surface(self, gp_class, x, y, test_prediction_reshaped):
