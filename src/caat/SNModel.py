@@ -450,7 +450,7 @@ class SNModel:
                 )
             else:
                 for sample in samples.T:
-                    ax.plot(test_times, sample, color=colors.get(filt, "k"), alpha=0.2)
+                    ax.plot(test_times, sample + template_mags, color=colors.get(filt, "k"), alpha=0.2)
                     ax.errorbar(
                         residuals_for_filt["Phase"].values,
                         residuals_for_filt["Mag"].values,

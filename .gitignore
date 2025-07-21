@@ -1,6 +1,6 @@
 swift_uvot_reductions/
 **/__pycache__/
-fitting/test*.py
+examples/test*.py
 diagnostics/*
 **/plot_demo*
 .pylintrc
