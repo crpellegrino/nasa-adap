@@ -1,52 +1,70 @@
-import os
-import json
 import warnings
-from typing import Union, Optional
-from statistics import mean, stdev
-import matplotlib.pyplot as plt
-import pandas as pd
 import numpy as np
-from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import RBF, WhiteKernel, Matern
-from sklearn.model_selection import train_test_split
-from scipy.signal import savgol_filter
-from scipy.interpolate import interp1d
-from extinction import fm07 as fm
-from astropy.coordinates import SkyCoord
-import astropy.units as u
-from dustmaps.sfd import SFDQuery
+
+from sklearn.gaussian_process.kernels import Kernel as SklearnKernel, KernelOperator
 
 warnings.filterwarnings("ignore")
 
 
-class RBFKernel:  # pylint: disable=too-few-public-methods
-    """
-    An RBFKernel object, to be used in GP fitting
-    Allows users to define Kernel parameters such as length scale, bounds, etc.
-    """
+class Kernel(SklearnKernel):
 
-    def __init__(self, length_scale, length_scale_bounds):
+    def __init__(self, kernel: SklearnKernel):
+        self.kernel = kernel
 
-        self.kernel = RBF(length_scale=length_scale, length_scale_bounds=length_scale_bounds)
+    def __call__(self, X, Y=None, eval_gradient=False):
+        return self.kernel.__call__(X, Y=Y, eval_gradient=eval_gradient)
+    
+    def is_stationary(self):
+        return self.kernel.is_stationary()
+    
+    def diag(self, X):
+        return self.kernel.diag(X)
 
+    def _recursively_get_component(self, kernel=None):
+        """Recursively get all components of self.kernel"""
+        if kernel is None:
+            kernel = self.kernel
 
-class WhiteNoiseKernel:  # pylint: disable=too-few-public-methods
-    """
-    An RBFKernel object, to be used in GP fitting
-    Allows users to define Kernel parameters such as noise level, bounds, etc.
-    """
+        if not isinstance(kernel, KernelOperator):
+            return np.asarray([kernel])
+        
+        return np.hstack([self._recursively_get_component(kernel.k1), self._recursively_get_component(kernel.k2)])
 
-    def __init__(self, noise_level, noise_level_bounds):
-
-        self.kernel = WhiteKernel(noise_level=noise_level, noise_level_bounds=noise_level_bounds)
-
-
-class MaternKernel:  # pylint: disable=too-few-public-methods
-    """
-    A MaternKernel, to be used in GP fitting
-    Allows users to define Kernel parameters such as length scale, bounds, etc.
-    """
-
-    def __init__(self, length_scale, length_scale_bounds, nu):
-
-        self.kernel = Matern(length_scale=length_scale, length_scale_bounds=length_scale_bounds, nu=nu)
+    @property
+    def components(self):
+        return self._recursively_get_component()
+        
+    def recursively_set_params(
+            self,
+            values: list,
+            bounds: list | str,
+            kernel = None,
+        ):
+        """
+        Recursively set parameters for all component kernels.
+        Gets the valid param keywords for the kernel and uses
+        them to set the values of the correct parameters.
+        If Kernel is a product or sum of kernels, assumes the 
+        input values and bounds are in the same order as the kernels
+        """
+        if kernel is None:
+            kernel = self.kernel
+        
+        if not isinstance(kernel, KernelOperator):
+            valid_param_keys = list(kernel.get_params().keys())
+            valid_params = {valid_param_keys[0]: values}
+            valid_params[valid_param_keys[1]] = bounds
+            kernel.set_params(**valid_params)
+        
+        else:
+            k1_dim = kernel.k1.n_dims
+            self.recursively_set_params(
+                values[:k1_dim][0] if k1_dim == 1 else values[:k1_dim],
+                bounds if isinstance(bounds, str) else bounds[:k1_dim],
+                kernel=kernel.k1
+            )
+            self.recursively_set_params(
+                values[k1_dim:][0] if kernel.k2.n_dims == 1 else values[k1_dim:],
+                bounds if isinstance(bounds, str) else bounds[k1_dim:],
+                kernel=kernel.k2
+            )

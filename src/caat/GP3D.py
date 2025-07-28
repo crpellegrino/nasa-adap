@@ -23,6 +23,7 @@ from .GP import GP
 from .Plot import Plot
 from .Diagnostics import Diagnostic
 from .DataCube import DataCube
+from .Kernels import Kernel
 from .SN import SN
 from .SNCollection import SNCollection, SNType
 from .SNModel import SNModel, SurfaceArray
@@ -49,7 +50,7 @@ class GP3D(GP):
     def __init__(
             self,
             collection: Union[SNCollection, SNType], 
-            kernel: Union[RBF, Matern, WhiteKernel],
+            kernel: Kernel,
             filtlist: list,
             phasemin: int,
             phasemax: int,
@@ -628,7 +629,11 @@ class GP3D(GP):
             raw_mags = np.concatenate([raw_mags, residuals["Mag"].values])
             err = np.concatenate([err, residuals["MagErr"].values])
 
-        gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+        if isinstance(self.kernel, Kernel):
+            gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
+        else:
+            gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+        
         gaussian_process.fit(x_input, y_input)
 
         x, y, wl_inds_fitted, phase_inds_fitted, phase_offset = self.build_test_wavelength_phase_grid_from_photometry(
@@ -728,7 +733,11 @@ class GP3D(GP):
                 # We have enough points to fit
                 err = residuals["MagErr"].values
 
-                gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+                if isinstance(self.kernel, Kernel):
+                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
+                else:
+                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+                
                 gaussian_process.fit(x, y)
 
                 kernel_params.append(gaussian_process.kernel_.theta)
@@ -740,12 +749,18 @@ class GP3D(GP):
                 ) for i in range(len(kernel_params[0]))
             ]
         )
-        self.kernel.set_params(
-            **{
-                "length_scale": optimized_kernel_hyperparams, 
-                "length_scale_bounds": "fixed"
-            }
-        )
+        if isinstance(self.kernel, Kernel):
+            self.kernel.recursively_set_params(
+                optimized_kernel_hyperparams,
+                "fixed"
+            )
+        else:
+            self.kernel.set_params(
+                **{
+                    "length_scale": optimized_kernel_hyperparams, 
+                    "length_scale_bounds": "fixed"
+                }
+            )
         return kernel_params
     
     def iteratively_warp_sed(
@@ -938,7 +953,11 @@ class GP3D(GP):
                 # We have enough points to fit
                 err = residuals["MagErr"].values
 
-                gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+                if isinstance(self.kernel, Kernel):
+                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
+                else:
+                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+
                 gaussian_process.fit(x, y)
 
                 if plot:

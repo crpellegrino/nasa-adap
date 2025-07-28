@@ -19,7 +19,7 @@ from dustmaps.sfd import SFDQuery
 
 # from .CAAT import CAAT
 # from .GP3D import GP3D
-from .Kernels import RBFKernel, WhiteKernel, MaternKernel
+from .Kernels import Kernel
 from .Plot import Plot
 # from .SN import SN
 from .SNCollection import SNCollection, SNType
@@ -66,7 +66,7 @@ class GP(Fitter):
     def __init__(
             self, 
             sne_collection: Union[SNCollection, SNType], 
-            kernel: Union[RBFKernel, WhiteKernel, MaternKernel],
+            kernel: Kernel,
             filtlist: list,
             phasemin: int, 
             phasemax: int,
