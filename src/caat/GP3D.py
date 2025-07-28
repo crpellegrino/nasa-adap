@@ -755,12 +755,13 @@ class GP3D(GP):
         wls_fit: np.ndarray,
         phases_fit: np.ndarray,
         sn: SN,
-        convergence_threshold: float = 1.1,
+        convergence_threshold: float = 1.0,
         niter: float = 100,
     ):
         """
         Compare photometry to prediction, iteratively warping the 
-        predicted flux until it matches the photometry
+        predicted flux until it matches the photometry within 
+        convergence_threshold * error for each data point
         """
         phases_to_iterate_over = np.log(
             np.arange(
@@ -781,6 +782,7 @@ class GP3D(GP):
                 current_lc_cube = residuals[abs(residuals['Phase'] - phase) <= 0.1]
                 current_lc = current_lc_cube['Mag'].values
                 current_lc = np.concatenate(([0.0], current_lc, [current_lc[-1]/2]))
+                current_lc_errs = np.concatenate(([0.0], current_lc_cube["MagErr"].values, [0.0]))
 
                 errors = np.ones(len(current_lc_inds)) * 100.0
                 errors = np.concatenate(([1.0], errors, [1.0]))
@@ -800,7 +802,9 @@ class GP3D(GP):
                 n = 0
 
                 for i in range(niter):
-                    if all(1 + abs(1 - errors) <= convergence_threshold) or n == niter:
+                    if all(
+                        [abs(1 - errors[i]) <= convergence_threshold * current_lc_errs[i] for i in range(len(errors))]
+                    ) or n == niter:
                         break
 
                     for j, filt in enumerate(current_lc_cube['Filter']):                                       
@@ -816,18 +820,15 @@ class GP3D(GP):
                         
                         predicted_mag = prediction_slice[wl_ind]
 
-                        try:
-                            diff = real_mag - predicted_mag
-                            if predicted_mag > 0:
-                                error = 1 + diff
-                            else:
-                                error = 1 - diff
-                        except ZeroDivisionError:
-                            error = 100
+                        diff = real_mag - predicted_mag
+                        if predicted_mag > 0:
+                            error = 1 + diff
+                        else:
+                            error = 1 - diff
                         
                         errors[j+1] = error
 
-                    if any(1 + abs(1 - errors) > convergence_threshold):
+                    if any([abs(1 - errors[j]) > convergence_threshold * current_lc_errs[j] for j in range(len(errors))]):
                         ### Warp the SED by an interpolation of the error across wavelength
                         ### and rerun the loop
                         if n < niter:
@@ -1057,7 +1058,7 @@ class GP3D(GP):
                     wl_grid[wl_inds_fitted],
                     phase_grid[phase_inds_fitted],
                     sn,
-                    convergence_threshold=1.05,
+                    convergence_threshold=1.0,
                 )
                 
                 test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
