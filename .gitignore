@@ -7,4 +7,5 @@ diagnostics/*
 **/.pylintrc
 .vscode/*
 data/test*
+data/tns_public_objects.csv
 .coverage
