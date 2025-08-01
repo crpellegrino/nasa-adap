@@ -131,7 +131,7 @@ class Plot:
         plt.ylabel("Apparent Magnitude")
         plt.title(sn_class.name)
         plt.legend()
-        plt.gca().invert_yaxis()
+        # plt.gca().invert_yaxis()
 
         # plt.show()
 
