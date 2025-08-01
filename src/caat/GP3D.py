@@ -811,6 +811,9 @@ class GP3D(GP):
                         wls_fit < max(wls)
                     )
                 )[0]
+                if len(sed_inds_at_this_phase) == 0:
+                    ### Redshifted filter central wavelengths outside the bounds of the filters fit by the GP
+                    continue
                 phase_ind = np.argmin(abs(phases_fit - phase))
 
                 prediction_slice = np.copy(test_prediction_reshaped[sed_inds_at_this_phase, phase_ind])
