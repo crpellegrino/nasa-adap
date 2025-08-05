@@ -242,7 +242,8 @@ class DataCube:
         trans_fns = {}
         filts_to_ignore = []
         for filt in np.unique(self.cube["Filter"]):
-            trans_wl, trans_eff = query_svo_service(FILT_TEL_CONVERSION[filt.replace("'", "")], filt.replace("'", ""))
+            svo_filt = filt.replace("'", "").replace("s", "")
+            trans_wl, trans_eff = query_svo_service(FILT_TEL_CONVERSION[svo_filt], svo_filt)
             trans_eff /= max(trans_eff)
             # Get min and max wavelength for this filter, let's define it as where eff < 10%
             center_of_filt = trans_wl[np.argmax(trans_eff)]
