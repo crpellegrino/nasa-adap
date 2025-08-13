@@ -286,10 +286,11 @@ class SN:
             if filt in self.zps.keys():
                 for phot in self.shifted_data[filt]:
                     unshifted_mag = phot["mag"] + self.info["peak_mag"]
-                    shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
-                        self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
-                    )  # * 1e15
-                    phot["flux"] = shifted_flux
+                    # shifted_flux = np.log10(self.zps[filt] * 1e-11 * 10 ** (-0.4 * unshifted_mag)) - np.log10(
+                    #     self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
+                    # )  # * 1e15
+                    # phot["flux"] = shifted_flux
+                    phot["flux"] = -1*phot["mag"]
                     phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
                     new_phot.append(phot)
                 self.shifted_data[filt] = new_phot

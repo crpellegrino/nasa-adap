@@ -156,13 +156,14 @@ class Plot:
         plt.legend()
         plt.show()
 
-    def plot_all_lcs(self, sn_class, filts=["all"], log_transform=False, plot_fluxes=False):
+    def plot_all_lcs(self, sn_class, filts=["all"], log_transform=False, plot_fluxes=False, ax=None, show=True):
         """plot all light curves of given subtype/collection
         can plot single, multiple or all bands"""
         sne = sn_class.sne
         logger.info(f"Plotting all {len(sne)} lightcurves in the collection")
 
-        fig, ax = plt.subplots()
+        if not ax:
+            fig, ax = plt.subplots()
         if filts[0] is not "all":
             filts_to_plot = filts
         else:
@@ -180,13 +181,15 @@ class Plot:
                         nondet_inds = np.where((nondets == False))[0]
                         det_inds = np.where((nondets == True))[0]
                         ax.errorbar(
-                            mjds[nondet_inds], mags[nondet_inds], yerr=errs[nondet_inds], fmt="o", mec="black", color=colors.get(f, "k"), label=f
+                            mjds[nondet_inds], mags[nondet_inds], yerr=errs[nondet_inds], fmt="o", mec="black", color=colors.get(f, "k")
                         )
                         ax.scatter(mjds[det_inds], mags[det_inds], marker="v", alpha=0.2, color=colors.get(f, "k"))
                     else:
-                        ax.errorbar(mjds, mags, yerr=errs, fmt="o", mec="black", color=colors.get(f, "k"), label=f)
-            filtText = f + "\n"
-            plt.figtext(0.95, 0.75 - (0.05 * i), filtText, fontsize=14, color=colors.get(f))
+                        ax.errorbar(mjds, mags, yerr=errs, fmt="o", mec="black", color=colors.get(f, "k"))
+            ax.errorbar([], [], color=colors.get(f, "k"), label=f)
+            if show:
+                filtText = f + "\n"
+                plt.figtext(0.95, 0.75 - (0.05 * i), filtText, fontsize=14, color=colors.get(f))
 
         if log_transform is False:
             ax.set_xlabel("Shifted Time [days]")
@@ -198,8 +201,9 @@ class Plot:
         else:
             ax.set_ylabel("Shifted Magnitudes")
             plt.gca().invert_yaxis()
-        plt.title("Lightcurves for collection of {} objects\nType:{}, Subtype:{}".format(len(sne), sn_class.type, sn_class.subtype))
-        plt.show()
+        if show:
+            plt.title("Lightcurves for collection of {} objects\nType:{}, Subtype:{}".format(len(sne), sn_class.type, sn_class.subtype))
+            plt.show()
 
     def plot_gp_predict_gp(self, phases, mean_prediction, std_prediction, mags, errs, filt, use_fluxes=False):
         fig, ax = plt.subplots()

@@ -214,7 +214,16 @@ class SNModel:
         if wavelength < self.min_wl or wavelength > self.max_wl:
             raise ValueError("Wavelength needs to be within the bounds of the GP")
         
-        linear_phases = np.linspace(phase_min, phase_max, int(min(len(self.phase_grid)/2, len(self.wl_grid)/2)))
+        linear_phases = np.linspace(
+            phase_min,
+            phase_max,
+            int(
+                max(
+                    min(len(self.phase_grid)/2, len(self.wl_grid)/2),
+                    40
+                )
+            )
+        )
         phases = np.log(linear_phases + self.log_transform)
         waves = np.ones(len(phases)) * np.log10(wavelength)
 
