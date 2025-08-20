@@ -159,11 +159,10 @@ class GP3D(GP):
                     cube = cube.drop(inds_to_drop_nondets_between_dets).reset_index(drop=True)
                 
                 try:
-                    cube["ShiftedFlux"] = sn.info["peak_mag"] - cube["Mag"]
+                    cube["MagFromPeak"] = sn.info["peak_mag"] - cube["Mag"]
+                    sn.cube = cube
                 except:
                     pass
-                sn.cube = cube
-
 
     @staticmethod
     def interpolate_grid(grid, interp_array, filter_window=171):
@@ -407,7 +406,7 @@ class GP3D(GP):
                 np.log(phasemax + log_transform),
             ]
         )
-        anchor_mags = np.asarray([anchor_mag_begin - 1.0, anchor_mag_begin, anchor_mag_end - 3.0])
+        anchor_mags = np.asarray([anchor_mag_begin - 1.0, anchor_mag_begin, anchor_mag_end - 1.0])
 
         for j in range(len(wl_grid)):
 
@@ -479,6 +478,7 @@ class GP3D(GP):
                 errs = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['ShiftedFluxerr'].values
                 current_nondets = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['Nondetection'].values
                 current_wls = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['LogShiftedWavelength'].values
+                mags_from_peak = sn.cube.loc[sn.cube["ShiftedFilter"]==filt]["MagFromPeak"].values
 
                 phases = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['LogPhase'].values
             else:
@@ -489,6 +489,8 @@ class GP3D(GP):
             # of this if statement will skip over those filters
             # (I don't know why this isn't caught above)
             if len(phases) > 0 and not np.isnan(sn.info.get("z", 0)):
+                if plot:
+                    _, ax = plt.subplots()
                 for i, phase in enumerate(phases):
                     ### Get index of current phase in phase grid
                     ### The phase corresponding to phase_ind is no more than the phase grid spacing away from the true phase being measured
@@ -511,7 +513,7 @@ class GP3D(GP):
                             "Wavelength": current_wls[i],
                             "MagResidual": mags[i] - mag_grid[phase_ind, wl_ind],
                             "MagErr": errs[i],
-                            "Mag": mags[i],
+                            "Mag": mags_from_peak[i],
                             "Nondetection": current_nondets[i],
                         }
                     )
@@ -531,14 +533,19 @@ class GP3D(GP):
                             fmt="o",
                             color=colors.get(filt, "k"),
                         )
-                if plot and len(phases) > 0:
+            
+                if plot:
+                    # NOTE: The wl ind changes with each data point,
+                    # therefore this is representation is not fully accurate
                     Plot().plot_subtract_data_from_grid(
                         sn_class=sn,
                         phase_grid=phase_grid,
                         mag_grid=mag_grid,
                         wl_ind=wl_ind,
                         filt=filt,
+                        ax=ax,
                     )
+                    plt.show()
 
         return pd.DataFrame(residuals)
     
@@ -608,30 +615,32 @@ class GP3D(GP):
         x_input, y_input, err, raw_mags = [], [], [], []
 
         for sn in self.collection.sne:
+
+            if hasattr(sn, "cube"):
             
-            residuals = self.subtract_data_from_grid(
-                sn,
-                self.filtlist,
-                phase_grid,
-                wl_grid,
-                mag_grid,
-                err_grid,
-                plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
-            )
+                residuals = self.subtract_data_from_grid(
+                    sn,
+                    self.filtlist,
+                    phase_grid,
+                    wl_grid,
+                    mag_grid,
+                    err_grid,
+                    plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
+                )
 
-            if len(residuals) == 0:
-                continue
+                if len(residuals) == 0:
+                    continue
 
-            phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
-            phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
+                phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
+                phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
 
-            if not len(x_input):
-                x_input = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
-            else:
-                x_input = np.concatenate([x_input, np.vstack((phases_to_fit, residuals["Wavelength"].values)).T])
-            y_input = np.concatenate([y_input, residuals["MagResidual"].values])
-            raw_mags = np.concatenate([raw_mags, residuals["Mag"].values])
-            err = np.concatenate([err, residuals["MagErr"].values])
+                if not len(x_input):
+                    x_input = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
+                else:
+                    x_input = np.concatenate([x_input, np.vstack((phases_to_fit, residuals["Wavelength"].values)).T])
+                y_input = np.concatenate([y_input, residuals["MagResidual"].values])
+                raw_mags = np.concatenate([raw_mags, residuals["Mag"].values])
+                err = np.concatenate([err, residuals["MagErr"].values])
 
         if isinstance(self.kernel, Kernel):
             gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
@@ -714,37 +723,39 @@ class GP3D(GP):
             raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
 
         for sn in self.collection.sne:
+
+            if hasattr(sn, "cube"):
             
-            residuals = self.subtract_data_from_grid(
-                sn,
-                self.filtlist,
-                phase_grid,
-                wl_grid,
-                mag_grid,
-                err_grid,
-                plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
-            )
+                residuals = self.subtract_data_from_grid(
+                    sn,
+                    self.filtlist,
+                    phase_grid,
+                    wl_grid,
+                    mag_grid,
+                    err_grid,
+                    plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
+                )
 
-            if len(residuals) == 0:
-                continue
+                if len(residuals) == 0:
+                    continue
 
-            phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
-            phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
+                phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
+                phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
 
-            x = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
-            y = residuals["MagResidual"].values
-            if len(y) > 1:
-                # We have enough points to fit
-                err = residuals["MagErr"].values
+                x = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
+                y = residuals["MagResidual"].values
+                if len(y) > 1:
+                    # We have enough points to fit
+                    err = residuals["MagErr"].values
 
-                if isinstance(self.kernel, Kernel):
-                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
-                else:
-                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
-                
-                gaussian_process.fit(x, y)
+                    if isinstance(self.kernel, Kernel):
+                        gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
+                    else:
+                        gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+                    
+                    gaussian_process.fit(x, y)
 
-                kernel_params.append(gaussian_process.kernel_.theta)
+                    kernel_params.append(gaussian_process.kernel_.theta)
 
         optimized_kernel_hyperparams = np.asarray(
             [
@@ -944,6 +955,9 @@ class GP3D(GP):
             raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
 
         for sn in self.collection.sne:
+
+            if not hasattr(sn, "cube"):
+                continue
             
             residuals = self.subtract_data_from_grid(
                 sn,
@@ -1023,20 +1037,17 @@ class GP3D(GP):
                         if len(inds_to_fit) > 0:
 
                             if plot:
-                                try:
-                                    Plot().plot_run_gp_overlay(
-                                        ax=ax,
-                                        test_times=test_times,
-                                        test_prediction=test_prediction,
-                                        std_prediction=std_prediction,
-                                        template_mags=template_mags,
-                                        residuals=residuals_for_filt,
-                                        log_transform=self.log_transform,
-                                        filt=filt,
-                                        sn_class=sn,
-                                    )
-                                except:
-                                    continue
+                                Plot().plot_run_gp_overlay(
+                                    ax=ax,
+                                    test_times=test_times,
+                                    test_prediction=test_prediction,
+                                    std_prediction=std_prediction,
+                                    template_mags=template_mags,
+                                    residuals=residuals_for_filt,
+                                    log_transform=self.log_transform,
+                                    filt=filt,
+                                    sn=sn,
+                                )
 
                         if run_diagnostics:
                             d = Diagnostic()
@@ -1087,6 +1098,14 @@ class GP3D(GP):
                 ### Put the fitted wavelengths back in the right spot on the grid
                 ### and append to the gaussian processes array
                 test_prediction_reshaped = test_prediction.reshape((len(x), -1)) + template_mags
+
+                ### Convert to mags from peak
+                for i, col in enumerate(test_prediction_reshaped[:,]):
+                    wl = 10**wl_grid[wl_inds_fitted][i]
+                    zp = (10**-23 * 3e18 / wl) * 1e11
+                    shifted_peak_mag = np.log10(sn.zps[sn.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * sn.info["peak_mag"]))
+                    shifted_mags = -1 * ((np.log10(10**(col + shifted_peak_mag) / (zp * 1e-11)) / -0.4) - sn.info["peak_mag"])
+                    test_prediction_reshaped[i] = shifted_mags
                 
                 test_prediction_reshaped = self.iteratively_warp_sed(
                     residuals, 

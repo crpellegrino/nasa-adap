@@ -275,20 +275,6 @@ class Plot:
         plt.tight_layout()
         # plt.show()
 
-        if grid_type == "median":
-            for filt in filtlist:
-                wl_inds = np.where((abs(10**wl_grid - gpc.wle[filt]) <= 100))[0]
-
-                plt.errorbar(
-                    phase_grid,
-                    mag_grid[:, wl_inds[0]],
-                    yerr=abs(err_grid[:, wl_inds[0]]),
-                    fmt="o",
-                )
-                plt.title(filt)
-                # plt.show()
-
-
     def plot_subtract_data_from_grid(
         self,
         sn_class,
@@ -296,10 +282,12 @@ class Plot:
         mag_grid,
         wl_ind,
         filt,
+        ax = None,
     ):
         sn = sn_class
 
-        fig, ax = plt.subplots()
+        if not ax:
+            fig, ax = plt.subplots()
         ax.plot(phase_grid, mag_grid[:, wl_ind], color=colors.get(filt, "k"), label="template")
 
         plt.axhline(y=0, linestyle="--", color="gray")
@@ -329,24 +317,40 @@ class Plot:
         residuals,
         log_transform,
         filt,
-        sn_class = None,
+        sn=None,
     ):
-        if sn_class:
-            sn = sn_class
-
-        ax.plot(
-            test_times,
-            test_prediction + template_mags,
-            label=filt,
-            color=colors.get(filt, "k"),
-        )
-        ax.fill_between(
-            test_times,
-            test_prediction - 1.96 * std_prediction + template_mags,
-            test_prediction + 1.96 * std_prediction + template_mags,
-            alpha=0.2,
-            color=colors.get(filt, "k"),
-        )
+        if sn is not None:
+            # Convert between log fluxes to shifted magnitudes
+            log_fluxes = test_prediction + template_mags
+            shifted_peak_mag = np.log10(sn.zps[sn.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * sn.info["peak_mag"]))
+            shifted_mags = -1 * ((np.log10(10**(log_fluxes + shifted_peak_mag) / (sn.zps[filt] * 1e-11)) / -0.4) - sn.info["peak_mag"])
+            ax.plot(
+                test_times,
+                shifted_mags,
+                label=filt,
+                color=colors.get(filt, "k"),
+            )
+            ax.fill_between(
+                test_times,
+                shifted_mags - 1.96 * std_prediction,
+                shifted_mags + 1.96 * std_prediction,
+                alpha=0.2,
+                color=colors.get(filt, "k"),
+            )
+        else:
+            ax.plot(
+                test_times,
+                test_prediction + template_mags,
+                label=filt,
+                color=colors.get(filt, "k"),
+            )
+            ax.fill_between(
+                test_times,
+                test_prediction - 1.96 * std_prediction + template_mags,
+                test_prediction + 1.96 * std_prediction + template_mags,
+                alpha=0.2,
+                color=colors.get(filt, "k"),
+            )          
 
         ax.errorbar(
             np.exp(
@@ -362,7 +366,7 @@ class Plot:
         
         ax.set_xlabel("Normalized Time [days]")
         ax.set_ylabel("Flux Relative to Peak")
-        if sn_class:
+        if sn is not None:
             plt.title(sn.name)
         plt.legend()
 

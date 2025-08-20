@@ -189,16 +189,17 @@ class GP(Fitter):
             sn_set = self.collection
 
         for sn in sn_set.sne:
+            if hasattr(sn, "cube"):
 
-            current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
-            current_mags = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFlux']
-            current_errs = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFluxerr']
-            current_wls = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogShiftedWavelength'].values
+                current_phases = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogPhase'].values
+                current_mags = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFlux']
+                current_errs = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['ShiftedFluxerr']
+                current_wls = sn.cube.loc[sn.cube['ShiftedFilter'] == filt]['LogShiftedWavelength'].values
 
-            phases = np.concatenate((phases, current_phases))
-            mags = np.concatenate((mags, current_mags))
-            errs = np.concatenate((errs, current_errs))
-            wls = np.concatenate((wls, current_wls))
+                phases = np.concatenate((phases, current_phases))
+                mags = np.concatenate((mags, current_mags))
+                errs = np.concatenate((errs, current_errs))
+                wls = np.concatenate((wls, current_wls))
 
         return (
             phases.reshape(-1, 1),
