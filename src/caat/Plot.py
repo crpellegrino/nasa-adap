@@ -16,7 +16,7 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
 import logging
-from caat.utils import colors
+from caat.utils import colors, convert_shifted_fluxes_to_shifted_mags
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -322,8 +322,10 @@ class Plot:
         if sn is not None:
             # Convert between log fluxes to shifted magnitudes
             log_fluxes = test_prediction + template_mags
-            shifted_peak_mag = np.log10(sn.zps[sn.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * sn.info["peak_mag"]))
-            shifted_mags = -1 * ((np.log10(10**(log_fluxes + shifted_peak_mag) / (sn.zps[filt] * 1e-11)) / -0.4) - sn.info["peak_mag"])
+            shifted_mags = convert_shifted_fluxes_to_shifted_mags(log_fluxes, sn, sn.zps[filt])
+            shifted_mags_lower_unc = convert_shifted_fluxes_to_shifted_mags(log_fluxes - 1.96 * std_prediction, sn, sn.zps[filt])
+            shifted_mags_upper_unc = convert_shifted_fluxes_to_shifted_mags(log_fluxes + 1.96 * std_prediction, sn, sn.zps[filt])
+
             ax.plot(
                 test_times,
                 shifted_mags,
@@ -332,8 +334,8 @@ class Plot:
             )
             ax.fill_between(
                 test_times,
-                shifted_mags - 1.96 * std_prediction,
-                shifted_mags + 1.96 * std_prediction,
+                shifted_mags_lower_unc,
+                shifted_mags_upper_unc,
                 alpha=0.2,
                 color=colors.get(filt, "k"),
             )

@@ -663,8 +663,32 @@ class GP3D(GP):
         template_mags = np.asarray(template_mags).reshape((len(x), -1))
 
         final_prediction = test_prediction.reshape((len(x), -1)) + template_mags
-        final_std_prediction = std_prediction.reshape((len(x), -1))
-        
+        final_std_prediction = std_prediction.reshape((len(x), -1)) + template_mags
+
+        ### Convert to mags from peak
+        for i, col in enumerate(final_prediction[:,]):
+            wl = 10**wl_grid[wl_inds_fitted][i]
+            zp = (10**-23 * 3e18 / wl) * 1e11
+            shifted_mags = -1*((col + np.log10(zp * 1e-11) - np.log10(10**-23 * 3e18 / 5000)) / -0.4)
+            final_prediction[i] = shifted_mags
+
+        ### Map predicted SED surface and uncertainty to the phase, wl grids
+        gp_grid = np.empty((len(wl_grid), len(phase_grid)))
+        gp_grid[:] = np.nan
+        for i, col in enumerate(final_prediction[:,]):
+            current_wl_grid_ind = wl_inds_fitted[i]
+            for j in range(len(col)):
+                current_phase_grid_ind = phase_inds_fitted[j]
+                gp_grid[current_wl_grid_ind, current_phase_grid_ind] = col[j]
+
+        gp_grid_std = np.empty((len(wl_grid), len(phase_grid)))
+        gp_grid_std[:] = np.nan
+        for i, col in enumerate(final_std_prediction[:,]):
+            current_wl_grid_ind = wl_inds_fitted[i]
+            for j in range(len(col)):
+                current_phase_grid_ind = phase_inds_fitted[j]
+                gp_grid_std[current_wl_grid_ind, current_phase_grid_ind] = col[j]
+
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         
@@ -680,7 +704,7 @@ class GP3D(GP):
         )
         ax.scatter(np.exp(x_input[:,0]) - self.log_transform, 10**x_input[:,1], raw_mags, marker='o', color='k')
         plt.show()
-        return gaussian_process, mag_grid, phase_grid, wl_grid
+        return [gp_grid, gp_grid_std], mag_grid, phase_grid, wl_grid
 
     def optimize_hyperparams(
         self,
@@ -1218,11 +1242,17 @@ class GP3D(GP):
                 subtract_polynomial=subtract_polynomial,
                 subtract_median=subtract_median,
             )
+            surface = SurfaceArray(
+                surface = np.asarray(gaussian_process),
+                phase_grid=phase_grid,
+                wl_grid = wl_grid,
+                kernel=self.kernel
+            )
             snmodel = SNModel(
                 phase_grid=np.exp(phase_grid) - self.log_transform,
                 wl_grid=10**wl_grid,
                 filters_fit=self.filtlist,
-                surface=gaussian_process,
+                surface=surface,
                 template_mags=template_mags,
                 sncollection=self.collection,
                 norm_set=self.set_to_normalize,
@@ -1253,17 +1283,17 @@ class GP3D(GP):
             for i, col in enumerate(median_gp):
                 median_gp[i, :] = savgol_filter(col, 51, 3)
 
-            iqr_grid = np.nanstd(np.dstack(gaussian_processes), -1)
-            iqr_grid = sigma_clip(iqr_grid, sigma=3, maxiters=5)
-            # iqr_grid = iqr(np.dstack(gaussian_processes), axis=-1, nan_policy='omit')
-            # iqr_grid = self.interpolate_grid(iqr_grid.T, wl_grid, filter_window=31)
-            # for i, col in enumerate(iqr_grid.T):
-            #     iqr_grid[:,i] = savgol_filter(col, 51, 3)
-            # iqr_grid = iqr_grid.T
+            # iqr_grid = np.nanstd(np.dstack(gaussian_processes), -1)
+            # iqr_grid = sigma_clip(iqr_grid, sigma=3, maxiters=5)
+            iqr_grid = iqr(np.dstack(gaussian_processes), axis=-1, nan_policy='omit')
+            iqr_grid = self.interpolate_grid(iqr_grid.T, wl_grid, filter_window=31)
+            for i, col in enumerate(iqr_grid.T):
+                iqr_grid[:,i] = savgol_filter(col, 51, 3)
+            iqr_grid = iqr_grid.T
 
-            # iqr_grid = self.interpolate_grid(iqr_grid, phase_grid, filter_window=171)
-            # for i, col in enumerate(iqr_grid):
-            #     iqr_grid[i, :] = savgol_filter(col, 51, 3)
+            iqr_grid = self.interpolate_grid(iqr_grid, phase_grid, filter_window=171)
+            for i, col in enumerate(iqr_grid):
+                iqr_grid[i, :] = savgol_filter(col, 51, 3)
             
             Z = median_gp
 
