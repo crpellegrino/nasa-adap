@@ -9,14 +9,15 @@ import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, Matern
 from sklearn.model_selection import train_test_split
-from scipy.signal import savgol_filter
+from scipy.signal import medfilt, savgol_filter
 from scipy.interpolate import interp1d
 from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
 from astropy.convolution import convolve
+from astropy.stats import sigma_clip
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
-from scipy.stats import iqr, norm
+from scipy.stats import iqr, norm, truncnorm
 import random
 
 from .GP import GP
@@ -157,8 +158,11 @@ class GP3D(GP):
                     ].index
                     cube = cube.drop(inds_to_drop_nondets_between_dets).reset_index(drop=True)
                 
-                sn.cube = cube
-
+                try:
+                    cube["MagFromPeak"] = sn.info["peak_mag"] - cube["Mag"]
+                    sn.cube = cube
+                except:
+                    pass
 
     @staticmethod
     def interpolate_grid(grid, interp_array, filter_window=171):
@@ -411,22 +415,21 @@ class GP3D(GP):
 
             if len(inds) > 0:
 
+                phases_to_fit = np.concatenate((template_df["Phase"][inds], anchor_phases))
+                mags_to_fit = np.concatenate((template_df["Mag"][inds], anchor_mags))
+                # if j == 0 or j == len(wl_grid) - 1:
+                #     # At the wavelength boundary, anchor this with artificially lower mags
+                #     mags_to_fit -= 2
+                errs_to_fit = np.concatenate((template_df["MagErr"][inds], np.ones(len(anchor_phases)) * 0.05))
+
                 fit_coeffs = np.polyfit(
-                    np.concatenate((template_df["Phase"][inds], anchor_phases)),
-                    np.concatenate((template_df["Mag"][inds], anchor_mags)),
+                    phases_to_fit,
+                    mags_to_fit,
                     3,
                     w=1
                     / (
                         np.sqrt(
-                            (
-                                np.concatenate(
-                                    (
-                                        template_df["MagErr"][inds],
-                                        np.ones(len(anchor_phases)) * 0.05,
-                                    )
-                                )
-                            )
-                            ** 2
+                            errs_to_fit**2
                             + (np.ones(len(template_df["MagErr"][inds]) + len(anchor_phases)) * 0.1) ** 2
                         )
                     ),
@@ -475,6 +478,7 @@ class GP3D(GP):
                 errs = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['ShiftedFluxerr'].values
                 current_nondets = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['Nondetection'].values
                 current_wls = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['LogShiftedWavelength'].values
+                mags_from_peak = sn.cube.loc[sn.cube["ShiftedFilter"]==filt]["MagFromPeak"].values
 
                 phases = sn.cube.loc[sn.cube['ShiftedFilter']==filt]['LogPhase'].values
             else:
@@ -485,6 +489,8 @@ class GP3D(GP):
             # of this if statement will skip over those filters
             # (I don't know why this isn't caught above)
             if len(phases) > 0 and not np.isnan(sn.info.get("z", 0)):
+                if plot:
+                    _, ax = plt.subplots()
                 for i, phase in enumerate(phases):
                     ### Get index of current phase in phase grid
                     ### The phase corresponding to phase_ind is no more than the phase grid spacing away from the true phase being measured
@@ -507,7 +513,7 @@ class GP3D(GP):
                             "Wavelength": current_wls[i],
                             "MagResidual": mags[i] - mag_grid[phase_ind, wl_ind],
                             "MagErr": errs[i],
-                            "Mag": mags[i],
+                            "Mag": mags_from_peak[i],
                             "Nondetection": current_nondets[i],
                         }
                     )
@@ -527,14 +533,19 @@ class GP3D(GP):
                             fmt="o",
                             color=colors.get(filt, "k"),
                         )
-                if plot and len(phases) > 0:
+            
+                if plot:
+                    # NOTE: The wl ind changes with each data point,
+                    # therefore this is representation is not fully accurate
                     Plot().plot_subtract_data_from_grid(
                         sn_class=sn,
                         phase_grid=phase_grid,
                         mag_grid=mag_grid,
                         wl_ind=wl_ind,
                         filt=filt,
+                        ax=ax,
                     )
+                    plt.show()
 
         return pd.DataFrame(residuals)
     
@@ -604,30 +615,32 @@ class GP3D(GP):
         x_input, y_input, err, raw_mags = [], [], [], []
 
         for sn in self.collection.sne:
+
+            if hasattr(sn, "cube"):
             
-            residuals = self.subtract_data_from_grid(
-                sn,
-                self.filtlist,
-                phase_grid,
-                wl_grid,
-                mag_grid,
-                err_grid,
-                plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
-            )
+                residuals = self.subtract_data_from_grid(
+                    sn,
+                    self.filtlist,
+                    phase_grid,
+                    wl_grid,
+                    mag_grid,
+                    err_grid,
+                    plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
+                )
 
-            if len(residuals) == 0:
-                continue
+                if len(residuals) == 0:
+                    continue
 
-            phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
-            phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
+                phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
+                phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
 
-            if not len(x_input):
-                x_input = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
-            else:
-                x_input = np.concatenate([x_input, np.vstack((phases_to_fit, residuals["Wavelength"].values)).T])
-            y_input = np.concatenate([y_input, residuals["MagResidual"].values])
-            raw_mags = np.concatenate([raw_mags, residuals["Mag"].values])
-            err = np.concatenate([err, residuals["MagErr"].values])
+                if not len(x_input):
+                    x_input = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
+                else:
+                    x_input = np.concatenate([x_input, np.vstack((phases_to_fit, residuals["Wavelength"].values)).T])
+                y_input = np.concatenate([y_input, residuals["MagResidual"].values])
+                raw_mags = np.concatenate([raw_mags, residuals["Mag"].values])
+                err = np.concatenate([err, residuals["MagErr"].values])
 
         if isinstance(self.kernel, Kernel):
             gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
@@ -650,8 +663,32 @@ class GP3D(GP):
         template_mags = np.asarray(template_mags).reshape((len(x), -1))
 
         final_prediction = test_prediction.reshape((len(x), -1)) + template_mags
-        final_std_prediction = std_prediction.reshape((len(x), -1))
-        
+        final_std_prediction = std_prediction.reshape((len(x), -1)) + template_mags
+
+        ### Convert to mags from peak
+        for i, col in enumerate(final_prediction[:,]):
+            wl = 10**wl_grid[wl_inds_fitted][i]
+            zp = (10**-23 * 3e18 / wl) * 1e11
+            shifted_mags = -1*((col + np.log10(zp * 1e-11) - np.log10(10**-23 * 3e18 / 5000)) / -0.4)
+            final_prediction[i] = shifted_mags
+
+        ### Map predicted SED surface and uncertainty to the phase, wl grids
+        gp_grid = np.empty((len(wl_grid), len(phase_grid)))
+        gp_grid[:] = np.nan
+        for i, col in enumerate(final_prediction[:,]):
+            current_wl_grid_ind = wl_inds_fitted[i]
+            for j in range(len(col)):
+                current_phase_grid_ind = phase_inds_fitted[j]
+                gp_grid[current_wl_grid_ind, current_phase_grid_ind] = col[j]
+
+        gp_grid_std = np.empty((len(wl_grid), len(phase_grid)))
+        gp_grid_std[:] = np.nan
+        for i, col in enumerate(final_std_prediction[:,]):
+            current_wl_grid_ind = wl_inds_fitted[i]
+            for j in range(len(col)):
+                current_phase_grid_ind = phase_inds_fitted[j]
+                gp_grid_std[current_wl_grid_ind, current_phase_grid_ind] = col[j]
+
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
         
@@ -667,7 +704,7 @@ class GP3D(GP):
         )
         ax.scatter(np.exp(x_input[:,0]) - self.log_transform, 10**x_input[:,1], raw_mags, marker='o', color='k')
         plt.show()
-        return gaussian_process, mag_grid, phase_grid, wl_grid
+        return [gp_grid, gp_grid_std], mag_grid, phase_grid, wl_grid
 
     def optimize_hyperparams(
         self,
@@ -710,37 +747,39 @@ class GP3D(GP):
             raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
 
         for sn in self.collection.sne:
+
+            if hasattr(sn, "cube"):
             
-            residuals = self.subtract_data_from_grid(
-                sn,
-                self.filtlist,
-                phase_grid,
-                wl_grid,
-                mag_grid,
-                err_grid,
-                plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
-            )
+                residuals = self.subtract_data_from_grid(
+                    sn,
+                    self.filtlist,
+                    phase_grid,
+                    wl_grid,
+                    mag_grid,
+                    err_grid,
+                    plot=False,  # TODO: are we sure we want to hard-code False for grid subtraction?
+                )
 
-            if len(residuals) == 0:
-                continue
+                if len(residuals) == 0:
+                    continue
 
-            phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
-            phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
+                phase_residuals_linear = np.exp(residuals["Phase"].values) - self.log_transform
+                phases_to_fit = np.log(phase_residuals_linear - min(phase_residuals_linear) + 0.1)
 
-            x = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
-            y = residuals["MagResidual"].values
-            if len(y) > 1:
-                # We have enough points to fit
-                err = residuals["MagErr"].values
+                x = np.vstack((phases_to_fit, residuals["Wavelength"].values)).T
+                y = residuals["MagResidual"].values
+                if len(y) > 1:
+                    # We have enough points to fit
+                    err = residuals["MagErr"].values
 
-                if isinstance(self.kernel, Kernel):
-                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
-                else:
-                    gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
-                
-                gaussian_process.fit(x, y)
+                    if isinstance(self.kernel, Kernel):
+                        gaussian_process = GaussianProcessRegressor(kernel=self.kernel.kernel, alpha=err, n_restarts_optimizer=10)
+                    else:
+                        gaussian_process = GaussianProcessRegressor(kernel=self.kernel, alpha=err, n_restarts_optimizer=10)
+                    
+                    gaussian_process.fit(x, y)
 
-                kernel_params.append(gaussian_process.kernel_.theta)
+                    kernel_params.append(gaussian_process.kernel_.theta)
 
         optimized_kernel_hyperparams = np.asarray(
             [
@@ -869,23 +908,30 @@ class GP3D(GP):
     
     def sample_predicted_sed(self, mean_prediction, std_prediction):
         """Randomly sample the predicted SED for better uncertainty estimate in final GP surface"""
-        # ### Draw from unit normal distribution
-        # val = np.random.randn()
-
-        # ### Get percentile of that random draw
-        # gaussian_distr = np.sort(np.random.randn(1000))
-        # percentile = len(gaussian_distr[gaussian_distr < val]) / len(gaussian_distr)
-
-        # ### Turn percentile into std deviation
-        # ### For a standard normal distribution, z_score = sigma
-        # sigma = norm.ppf(percentile)
-
-        ### Return the median GP +/- n sigma 
-
         ### Draw random sigma between -1 and 1
-        sigma = random.uniform(-1, 1)
+        sigma = truncnorm.rvs(-1, 1, loc=0, scale=1, size=1)[0]
         sampled_prediction = mean_prediction + (sigma * std_prediction)
         return sampled_prediction
+    
+    def _smooth_predicted_model(
+            self,
+            model_array: np.ndarray, 
+            window_size: int,
+            transpose: bool = False
+        ):
+        if transpose:
+            model_array = model_array.T
+        
+        model_array_smoothed = np.empty(model_array.shape)
+        for i, col in enumerate(model_array):
+            if window_size % 2 == 0:
+                window_size += 1 # Must be odd
+            # Use astropy convolve function to handle NaNs
+            model_array_smoothed[i,:] = convolve(col, np.ones(window_size)/window_size, boundary='extend') # Boxcar smoothing
+
+        if transpose:
+            model_array_smoothed = model_array_smoothed.T
+        return model_array_smoothed
 
     def run_gp_individually(
         self,
@@ -933,6 +979,9 @@ class GP3D(GP):
             raise Exception("Must toggle either subtract_median or subtract_polynomial as True to run GP3D")
 
         for sn in self.collection.sne:
+
+            if not hasattr(sn, "cube"):
+                continue
             
             residuals = self.subtract_data_from_grid(
                 sn,
@@ -964,52 +1013,54 @@ class GP3D(GP):
                 gaussian_process.fit(x, y)
 
                 if plot:
-                    fig, ax = Plot().create_empty_subplot()
+                    _, ax = Plot().create_empty_subplot()
 
                 filts_fitted = []
 
                 for filt in self.filtlist:
-                        
-                    test_times_linear = np.arange(
-                        min(phase_residuals_linear),
-                        max(phase_residuals_linear),
-                        1.0 / 24
-                    ) 
-                    test_times = np.log(test_times_linear - min(phase_residuals_linear) + 0.1)
-
-                    test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
-
-                    ### Trying to convert back to normalized magnitudes here
-                    wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
-                    template_mags = []
-                    for i in range(len(test_times_linear)):
-                        j = np.argmin(abs(np.exp(phase_grid) - self.log_transform - test_times_linear[i]))
-                        template_mags.append(mag_grid[j, wl_ind])
-
-                    template_mags = np.asarray(template_mags)
-
-                    test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
-                    test_times = np.exp(test_times) + min(phase_residuals_linear) - 0.1
-                    
-                    # Plot the SN photometry
                     shifted_mjd = sn.cube[sn.cube['Filter']==filt]['Phase'].values.astype(float)
                     shifted_mjd = sn.log_transform_time(shifted_mjd, phase_start=self.log_transform)
 
                     inds_to_fit = np.where(
-                        (shifted_mjd > np.log(self.phasemin + self.log_transform)) & (shifted_mjd < np.log(self.phasemax + self.log_transform))
+                        (shifted_mjd > np.log(self.phasemin + self.log_transform))
+                        & (shifted_mjd < np.log(self.phasemax + self.log_transform))
                     )[0]
 
-                    residuals_for_filt = residuals[
-                        (residuals["Filter"] == filt)
-                        & (residuals["Phase"] > np.log(self.phasemin + self.log_transform))
-                        & (residuals["Phase"] < np.log(self.phasemax + self.log_transform))
-                        & (residuals["Nondetection"] == False)
-                    ]
                     if len(inds_to_fit) > 0:
                         filts_fitted.append(filt)
 
-                        if plot:
-                            try:
+                    if plot or run_diagnostics:
+                        test_times_linear = np.arange(
+                            min(phase_residuals_linear),
+                            max(phase_residuals_linear),
+                            1.0 / 24
+                        ) 
+                        test_times = np.log(test_times_linear - min(phase_residuals_linear) + 0.1)
+
+                        test_waves = np.ones(len(test_times)) * np.log10(self.wle[filt] * (1 + sn.info.get("z", 0)))
+
+                        ### Trying to convert back to normalized magnitudes here
+                        wl_ind = np.argmin(abs(10**wl_grid - self.wle[filt] * (1 + sn.info.get("z", 0))))
+                        template_mags = []
+                        for i in range(len(test_times_linear)):
+                            j = np.argmin(abs(np.exp(phase_grid) - self.log_transform - test_times_linear[i]))
+                            template_mags.append(mag_grid[j, wl_ind])
+
+                        template_mags = np.asarray(template_mags)
+
+                        test_prediction, std_prediction = gaussian_process.predict(np.vstack((test_times, test_waves)).T, return_std=True)
+                        test_times = np.exp(test_times) + min(phase_residuals_linear) - 0.1
+
+                        residuals_for_filt = residuals[
+                            (residuals["Filter"] == filt)
+                            & (residuals["Phase"] > np.log(self.phasemin + self.log_transform))
+                            & (residuals["Phase"] < np.log(self.phasemax + self.log_transform))
+                            & (residuals["Nondetection"] == False)
+                        ]
+                        
+                        if len(inds_to_fit) > 0:
+
+                            if plot:
                                 Plot().plot_run_gp_overlay(
                                     ax=ax,
                                     test_times=test_times,
@@ -1019,34 +1070,32 @@ class GP3D(GP):
                                     residuals=residuals_for_filt,
                                     log_transform=self.log_transform,
                                     filt=filt,
-                                    sn_class=sn,
+                                    sn=sn,
                                 )
-                            except:
-                                continue
 
-                    if run_diagnostics:
-                        d = Diagnostic()
-                        d.identify_outlier_points(
-                            filt,
-                            test_times,
-                            test_prediction + template_mags,
-                            std_prediction,
-                            np.exp(
-                                residuals_for_filt["Phase"].values
-                            )-self.log_transform,
-                            residuals_for_filt["Mag"].values,
-                            residuals_for_filt["MagErr"].values,
-                        )
+                        if run_diagnostics:
+                            d = Diagnostic()
+                            d.identify_outlier_points(
+                                filt,
+                                test_times,
+                                test_prediction + template_mags,
+                                std_prediction,
+                                np.exp(
+                                    residuals_for_filt["Phase"].values
+                                )-self.log_transform,
+                                residuals_for_filt["Mag"].values,
+                                residuals_for_filt["MagErr"].values,
+                            )
 
-                        d.check_late_time_slope(
-                            filt,
-                            test_times,
-                            test_prediction + template_mags,
-                            np.exp(residuals_for_filt["Phase"].values) - self.log_transform,
-                        )
+                            d.check_late_time_slope(
+                                filt,
+                                test_times,
+                                test_prediction + template_mags,
+                                np.exp(residuals_for_filt["Phase"].values) - self.log_transform,
+                            )
 
-                    if (subtract_median or subtract_polynomial) and interactive:
-                        use_for_template = input("Use this fit to construct a template? y/n")
+                        if interactive:
+                            use_for_template = input("Use this fit to construct a template? y/n")
                 
                 x, y, wl_inds_fitted, phase_inds_fitted, phase_offset = self.build_test_wavelength_phase_grid_from_photometry(
                     residuals["Wavelength"].values, residuals["Phase"].values, wl_grid, phase_grid
@@ -1073,6 +1122,14 @@ class GP3D(GP):
                 ### Put the fitted wavelengths back in the right spot on the grid
                 ### and append to the gaussian processes array
                 test_prediction_reshaped = test_prediction.reshape((len(x), -1)) + template_mags
+
+                ### Convert to mags from peak
+                for i, col in enumerate(test_prediction_reshaped[:,]):
+                    wl = 10**wl_grid[wl_inds_fitted][i]
+                    zp = (10**-23 * 3e18 / wl) * 1e11
+                    shifted_peak_mag = np.log10(sn.zps[sn.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * sn.info["peak_mag"]))
+                    shifted_mags = -1 * ((np.log10(10**(col + shifted_peak_mag) / (zp * 1e-11)) / -0.4) - sn.info["peak_mag"])
+                    test_prediction_reshaped[i] = shifted_mags
                 
                 test_prediction_reshaped = self.iteratively_warp_sed(
                     residuals, 
@@ -1082,32 +1139,30 @@ class GP3D(GP):
                     sn,
                     convergence_threshold=1.0,
                 )
-                
-                test_prediction_smoothed = np.empty(test_prediction_reshaped.shape)
-                for i, col in enumerate(test_prediction_reshaped.T):
-                    window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5) # Window size of approximately half a filter length scale
-                    if window_size % 2 == 0:
-                        window_size += 1 # Must be odd
-                    # Use astropy convolve function to handle NaNs
-                    test_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend') # Boxcar smoothing
-                
-                for i, col in enumerate(test_prediction_reshaped):
-                    window_size = max(int(round(len(col) / (len(phase_grid/(5*24))), 0)), 5) # Window size of approximate a day
-                    if window_size % 2 == 0:
-                        window_size += 1
-                    test_prediction_smoothed[i, :] = convolve(col, np.ones(window_size) / window_size, boundary='extend')
 
                 std_prediction_reshaped = std_prediction.reshape((len(x), -1)) + template_mags
-                std_prediction_smoothed = np.empty(std_prediction_reshaped.shape)
-                for i, col in enumerate(std_prediction_reshaped.T):
-                    window_size = max(int(round(len(col) / (2*len(filts_fitted)), 0)), 5)
-                    if window_size % 2 == 0:
-                        window_size += 1 # Must be odd
-                    std_prediction_smoothed[:,i] = convolve(col, np.ones(window_size)/window_size, boundary='extend')
+                
+                test_prediction_smoothed = self._smooth_predicted_model(
+                    test_prediction_reshaped,
+                    window_size=max(int(round(test_prediction_reshaped.shape[0] / (2*len(filts_fitted)), 0)), 5), # Window size of approximately half a filter length scale
+                    transpose=True,
+                )
+
+                test_prediction_smoothed = self._smooth_predicted_model(
+                    test_prediction_smoothed,
+                    window_size=max(int(round(test_prediction_smoothed.shape[1] / (len(phase_grid/(5*24))), 0)), 5) # Window size of approximate a day
+                )
+
+                std_prediction_smoothed =self._smooth_predicted_model(
+                    std_prediction_reshaped,
+                    window_size=max(int(round(std_prediction_reshaped.shape[0] / (2*len(filts_fitted)), 0)), 5),
+                    transpose=True
+                )
 
                 gp_grid = np.empty((len(wl_grid), len(phase_grid)))
                 gp_grid[:] = np.nan
                 for i, col in enumerate(test_prediction_smoothed[:,]):
+                # for i, col in enumerate(test_prediction_reshaped[:,]):
                     current_wl_grid_ind = wl_inds_fitted[i]
                     for j in range(len(col)):
                         current_phase_grid_ind = phase_inds_fitted[j]
@@ -1115,6 +1170,7 @@ class GP3D(GP):
 
                 gp_grid_std = np.empty((len(wl_grid), len(phase_grid)))
                 gp_grid_std[:] = np.nan
+                # for i, col in enumerate(std_prediction_reshaped[:,]):
                 for i, col in enumerate(std_prediction_smoothed[:,]):
                     current_wl_grid_ind = wl_inds_fitted[i]
                     for j in range(len(col)):
@@ -1125,6 +1181,7 @@ class GP3D(GP):
                         gp_class=self,
                         x=np.exp(x) + phase_offset - 0.1,
                         y=10**(y),
+                        # test_prediction_reshaped=test_prediction_reshaped,
                         test_prediction_reshaped=test_prediction_smoothed,
                     )
                     if run_diagnostics:
@@ -1133,7 +1190,9 @@ class GP3D(GP):
                             [self.wle[f] for f in filts_fitted],
                             np.exp(phase_grid[phase_inds_fitted]) - self.log_transform,
                             10**(wl_grid[wl_inds_fitted]),
+                            # test_prediction_reshaped,
                             test_prediction_smoothed,
+                            # std_prediction_reshaped,
                             std_prediction_smoothed,
                             [-15.0, 0.0, 50.0]
                         )
@@ -1141,17 +1200,17 @@ class GP3D(GP):
                             d.check_uvm2_flux(
                                 np.exp(phase_grid[phase_inds_fitted]) - self.log_transform,
                                 10**(wl_grid[wl_inds_fitted]),
+                                # test_prediction_reshaped,
                                 test_prediction_smoothed,
+                                # std_prediction_reshaped,
                                 std_prediction_smoothed,
                                 [-15.0, 0.0, 50.0]
                             )
-                if not plot:
-                    use_for_template = "y"
-                elif not interactive:
+                if not interactive:
                     use_for_template = "y"
 
                 if use_for_template == "y":
-                    for i in range(30):
+                    for i in range(round(np.log(len(residuals)))):
                         random_sample = self.sample_predicted_sed(gp_grid, gp_grid_std)
                         gaussian_processes.append(random_sample)
 
@@ -1183,11 +1242,17 @@ class GP3D(GP):
                 subtract_polynomial=subtract_polynomial,
                 subtract_median=subtract_median,
             )
+            surface = SurfaceArray(
+                surface = np.asarray(gaussian_process),
+                phase_grid=phase_grid,
+                wl_grid = wl_grid,
+                kernel=self.kernel
+            )
             snmodel = SNModel(
                 phase_grid=np.exp(phase_grid) - self.log_transform,
                 wl_grid=10**wl_grid,
                 filters_fit=self.filtlist,
-                surface=gaussian_process,
+                surface=surface,
                 template_mags=template_mags,
                 sncollection=self.collection,
                 norm_set=self.set_to_normalize,
@@ -1205,28 +1270,27 @@ class GP3D(GP):
                 run_diagnostics=run_diagnostics,
             )
 
-            median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
-
             X, Y = np.meshgrid(np.exp(phase_grid) - self.log_transform, 10**wl_grid)
 
+            median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
             median_gp = self.interpolate_grid(median_gp.T, wl_grid, filter_window=31)
             for i, col in enumerate(median_gp.T):
-                median_gp[:,i] = savgol_filter(col, 51, 3)
+                median_gp[:, i] = medfilt(col, kernel_size=51)
             median_gp = median_gp.T
 
             median_gp = self.interpolate_grid(median_gp, phase_grid, filter_window=171)
             for i, col in enumerate(median_gp):
-                median_gp[i, :] = savgol_filter(col, 51, 3)
+                median_gp[i, :] = medfilt(col, kernel_size=51)
 
-            iqr_grid = iqr(np.dstack(gaussian_processes), axis=-1, nan_policy='omit')
+            iqr_grid = np.nanstd(np.dstack(gaussian_processes), -1)
             iqr_grid = self.interpolate_grid(iqr_grid.T, wl_grid, filter_window=31)
             for i, col in enumerate(iqr_grid.T):
-                iqr_grid[:,i] = savgol_filter(col, 51, 3)
+                iqr_grid[:, i] = medfilt(col, kernel_size=51)
             iqr_grid = iqr_grid.T
 
             iqr_grid = self.interpolate_grid(iqr_grid, phase_grid, filter_window=171)
             for i, col in enumerate(iqr_grid):
-                iqr_grid[i, :] = savgol_filter(col, 51, 3)
+                iqr_grid[i, :] = medfilt(col, kernel_size=51)
             
             Z = median_gp
 

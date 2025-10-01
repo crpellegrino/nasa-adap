@@ -78,10 +78,10 @@ class SNCollection:
         # Maybe this lives in a separate class that handles the csv db file
         raise NotImplementedError
 
-    def plot_all_lcs(self, filts=["all"], log_transform=False, plot_fluxes=False):
+    def plot_all_lcs(self, filts=["all"], log_transform=False, plot_fluxes=False, ax=None, show=True):
         """plot all light curves of given subtype/collection
         can plot single, multiple or all bands"""
-        Plot().plot_all_lcs(sn_class=self, filts=filts, log_transform=log_transform, plot_fluxes=plot_fluxes)
+        Plot().plot_all_lcs(sn_class=self, filts=filts, log_transform=log_transform, plot_fluxes=plot_fluxes, ax=ax, show=show)
 
 
 class SNType(SNCollection):

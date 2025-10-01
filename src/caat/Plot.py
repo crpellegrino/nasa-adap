@@ -16,7 +16,7 @@ from astropy.coordinates import SkyCoord
 import astropy.units as u
 from dustmaps.sfd import SFDQuery
 import logging
-from caat.utils import colors
+from caat.utils import colors, convert_shifted_fluxes_to_shifted_mags
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -156,13 +156,14 @@ class Plot:
         plt.legend()
         plt.show()
 
-    def plot_all_lcs(self, sn_class, filts=["all"], log_transform=False, plot_fluxes=False):
+    def plot_all_lcs(self, sn_class, filts=["all"], log_transform=False, plot_fluxes=False, ax=None, show=True):
         """plot all light curves of given subtype/collection
         can plot single, multiple or all bands"""
         sne = sn_class.sne
         logger.info(f"Plotting all {len(sne)} lightcurves in the collection")
 
-        fig, ax = plt.subplots()
+        if not ax:
+            fig, ax = plt.subplots()
         if filts[0] is not "all":
             filts_to_plot = filts
         else:
@@ -180,13 +181,15 @@ class Plot:
                         nondet_inds = np.where((nondets == False))[0]
                         det_inds = np.where((nondets == True))[0]
                         ax.errorbar(
-                            mjds[nondet_inds], mags[nondet_inds], yerr=errs[nondet_inds], fmt="o", mec="black", color=colors.get(f, "k"), label=f
+                            mjds[nondet_inds], mags[nondet_inds], yerr=errs[nondet_inds], fmt="o", mec="black", color=colors.get(f, "k")
                         )
                         ax.scatter(mjds[det_inds], mags[det_inds], marker="v", alpha=0.2, color=colors.get(f, "k"))
                     else:
-                        ax.errorbar(mjds, mags, yerr=errs, fmt="o", mec="black", color=colors.get(f, "k"), label=f)
-            filtText = f + "\n"
-            plt.figtext(0.95, 0.75 - (0.05 * i), filtText, fontsize=14, color=colors.get(f))
+                        ax.errorbar(mjds, mags, yerr=errs, fmt="o", mec="black", color=colors.get(f, "k"))
+            ax.errorbar([], [], color=colors.get(f, "k"), label=f)
+            if show:
+                filtText = f + "\n"
+                plt.figtext(0.95, 0.75 - (0.05 * i), filtText, fontsize=14, color=colors.get(f))
 
         if log_transform is False:
             ax.set_xlabel("Shifted Time [days]")
@@ -198,8 +201,9 @@ class Plot:
         else:
             ax.set_ylabel("Shifted Magnitudes")
             plt.gca().invert_yaxis()
-        plt.title("Lightcurves for collection of {} objects\nType:{}, Subtype:{}".format(len(sne), sn_class.type, sn_class.subtype))
-        plt.show()
+        if show:
+            plt.title("Lightcurves for collection of {} objects\nType:{}, Subtype:{}".format(len(sne), sn_class.type, sn_class.subtype))
+            plt.show()
 
     def plot_gp_predict_gp(self, phases, mean_prediction, std_prediction, mags, errs, filt, use_fluxes=False):
         fig, ax = plt.subplots()
@@ -271,20 +275,6 @@ class Plot:
         plt.tight_layout()
         # plt.show()
 
-        if grid_type == "median":
-            for filt in filtlist:
-                wl_inds = np.where((abs(10**wl_grid - gpc.wle[filt]) <= 100))[0]
-
-                plt.errorbar(
-                    phase_grid,
-                    mag_grid[:, wl_inds[0]],
-                    yerr=abs(err_grid[:, wl_inds[0]]),
-                    fmt="o",
-                )
-                plt.title(filt)
-                # plt.show()
-
-
     def plot_subtract_data_from_grid(
         self,
         sn_class,
@@ -292,10 +282,12 @@ class Plot:
         mag_grid,
         wl_ind,
         filt,
+        ax = None,
     ):
         sn = sn_class
 
-        fig, ax = plt.subplots()
+        if not ax:
+            fig, ax = plt.subplots()
         ax.plot(phase_grid, mag_grid[:, wl_ind], color=colors.get(filt, "k"), label="template")
 
         plt.axhline(y=0, linestyle="--", color="gray")
@@ -325,24 +317,42 @@ class Plot:
         residuals,
         log_transform,
         filt,
-        sn_class = None,
+        sn=None,
     ):
-        if sn_class:
-            sn = sn_class
+        if sn is not None:
+            # Convert between log fluxes to shifted magnitudes
+            log_fluxes = test_prediction + template_mags
+            shifted_mags = convert_shifted_fluxes_to_shifted_mags(log_fluxes, sn, sn.zps[filt])
+            shifted_mags_lower_unc = convert_shifted_fluxes_to_shifted_mags(log_fluxes - 1.96 * std_prediction, sn, sn.zps[filt])
+            shifted_mags_upper_unc = convert_shifted_fluxes_to_shifted_mags(log_fluxes + 1.96 * std_prediction, sn, sn.zps[filt])
 
-        ax.plot(
-            test_times,
-            test_prediction + template_mags,
-            label=filt,
-            color=colors.get(filt, "k"),
-        )
-        ax.fill_between(
-            test_times,
-            test_prediction - 1.96 * std_prediction + template_mags,
-            test_prediction + 1.96 * std_prediction + template_mags,
-            alpha=0.2,
-            color=colors.get(filt, "k"),
-        )
+            ax.plot(
+                test_times,
+                shifted_mags,
+                label=filt,
+                color=colors.get(filt, "k"),
+            )
+            ax.fill_between(
+                test_times,
+                shifted_mags_lower_unc,
+                shifted_mags_upper_unc,
+                alpha=0.2,
+                color=colors.get(filt, "k"),
+            )
+        else:
+            ax.plot(
+                test_times,
+                test_prediction + template_mags,
+                label=filt,
+                color=colors.get(filt, "k"),
+            )
+            ax.fill_between(
+                test_times,
+                test_prediction - 1.96 * std_prediction + template_mags,
+                test_prediction + 1.96 * std_prediction + template_mags,
+                alpha=0.2,
+                color=colors.get(filt, "k"),
+            )          
 
         ax.errorbar(
             np.exp(
@@ -358,7 +368,7 @@ class Plot:
         
         ax.set_xlabel("Normalized Time [days]")
         ax.set_ylabel("Flux Relative to Peak")
-        if sn_class:
+        if sn is not None:
             plt.title(sn.name)
         plt.legend()
 

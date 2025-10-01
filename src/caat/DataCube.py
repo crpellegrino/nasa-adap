@@ -112,7 +112,7 @@ class DataCube:
                         [[d['mag'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]
                     ),
                     np.hstack(
-                        [[d['mag'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
+                        [[d['shiftedmag'] for d in self.sn.shifted_data[filt]] for filt in self.sn.shifted_data.keys()]
                     ),
                     np.hstack(
                         [[d['err'] for d in self.sn.data[filt]] for filt in self.sn.data.keys()]

@@ -290,6 +290,8 @@ class SN:
                         self.zps[self.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * self.info["peak_mag"])
                     )  # * 1e15
                     phot["flux"] = shifted_flux
+                    phot["shiftedmag"] = -1 * phot["mag"]
+                    # phot["flux"] = -1*phot["mag"]
                     phot["fluxerr"] = phot["err"]  # 1.086 * phot['err'] * phot['flux']
                     new_phot.append(phot)
                 self.shifted_data[filt] = new_phot
@@ -559,7 +561,7 @@ class SN:
         if shift_fluxes:
             self.convert_all_mags_to_fluxes()
             shifted_mjd = np.asarray([phot["mjd"] for phot in self.shifted_data[filt]])
-            shifted_flux = np.asarray([phot["flux"] for phot in self.shifted_data[filt]])
+            shifted_flux = np.asarray([phot["shiftedmag"] for phot in self.shifted_data[filt]])
             shifted_err = np.asarray([phot["fluxerr"] for phot in self.shifted_data[filt]])
             nondets = np.asarray([phot.get("nondetection", False) for phot in self.shifted_data[filt]])
             wls = np.asarray([phot.get("wle", self.wle[filt] * (1 + self.info.get("z", 0.0))) for phot in self.shifted_data[filt]])

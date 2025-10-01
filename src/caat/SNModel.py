@@ -101,6 +101,7 @@ class SNModel:
                 self.norm_set = norm_set
             
             self.surface = surface
+            self.kernel = surface.kernel
             self.template = template_mags
         
             if phase_grid is None and phase_bounds is not None and self.template is not None:
@@ -214,7 +215,16 @@ class SNModel:
         if wavelength < self.min_wl or wavelength > self.max_wl:
             raise ValueError("Wavelength needs to be within the bounds of the GP")
         
-        linear_phases = np.linspace(phase_min, phase_max, int(min(len(self.phase_grid)/2, len(self.wl_grid)/2)))
+        linear_phases = np.linspace(
+            phase_min,
+            phase_max,
+            int(
+                max(
+                    min(len(self.phase_grid)/2, len(self.wl_grid)/2),
+                    40
+                )
+            )
+        )
         phases = np.log(linear_phases + self.log_transform)
         waves = np.ones(len(phases)) * np.log10(wavelength)
 
@@ -317,7 +327,7 @@ class SNModel:
         filtered_cube = cube[(cube["ShiftedFilter"]==filt) & (cube["Phase"] > self.min_phase) & (cube["Phase"] < self.max_phase)]
 
         observed_phases = filtered_cube["Phase"].values
-        observed_fluxes = filtered_cube["ShiftedFlux"].values
+        observed_fluxes = filtered_cube["ShiftedMag"].values
         observed_flux_errs = filtered_cube["ShiftedFluxerr"].values
 
         plt.errorbar(observed_phases, observed_fluxes, yerr=observed_flux_errs, fmt='o', label=sn.name)
@@ -334,7 +344,7 @@ class SNModel:
     ):
         """
         Fit input photometry using the GaussianProcessRegressor model.
-        If a phase min or phase max is specified, extrapolatees the fit to those bounds.
+        If a phase min or phase max is specified, extrapolates the fit to those bounds.
 
         Parameters:
             photometry: dict | pd.DataFrame
@@ -431,6 +441,8 @@ class SNModel:
                 test_prediction, std_prediction = gp.predict(np.vstack((test_times, test_waves)).T, return_std=True)
             elif nsamples > 1:
                 samples = gp.sample_y(np.vstack((test_times, test_waves)).T, n_samples=nsamples)
+
+            # TODO: Convert from log flux to shifted mags here?
             
             test_times = np.exp(test_times) + phase_min - 0.1
             residuals_for_filt = residuals[residuals["Filter"] == filt]

@@ -144,3 +144,9 @@ def bin_spec(wl, flux, wl2, plot=False):
         plt.legend()
         plt.show()
     return np.asarray(binned_wl), np.asarray(binned_flux)
+
+def convert_shifted_fluxes_to_shifted_mags(fluxes, sn, zp_at_wl):
+    """Convert between log flux relative to peak to mags relative to peak"""
+    shifted_peak_mag = np.log10(sn.zps[sn.info["peak_filt"]] * 1e-11 * 10 ** (-0.4 * sn.info["peak_mag"]))
+    shifted_mags = -1 * ((np.log10(10**(fluxes + shifted_peak_mag) / (zp_at_wl * 1e-11)) / -0.4) - sn.info["peak_mag"])
+    return shifted_mags
