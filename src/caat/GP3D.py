@@ -9,7 +9,7 @@ import numpy as np
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, Matern
 from sklearn.model_selection import train_test_split
-from scipy.signal import savgol_filter
+from scipy.signal import medfilt, savgol_filter
 from scipy.interpolate import interp1d
 from extinction import fm07 as fm
 from astropy.coordinates import SkyCoord
@@ -1210,7 +1210,7 @@ class GP3D(GP):
                     use_for_template = "y"
 
                 if use_for_template == "y":
-                    for i in range(round(np.log(len(residuals)))):#30):
+                    for i in range(round(np.log(len(residuals)))):
                         random_sample = self.sample_predicted_sed(gp_grid, gp_grid_std)
                         gaussian_processes.append(random_sample)
 
@@ -1270,30 +1270,27 @@ class GP3D(GP):
                 run_diagnostics=run_diagnostics,
             )
 
-            median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
-
             X, Y = np.meshgrid(np.exp(phase_grid) - self.log_transform, 10**wl_grid)
 
+            median_gp = np.nanmedian(np.dstack(gaussian_processes), -1)
             median_gp = self.interpolate_grid(median_gp.T, wl_grid, filter_window=31)
             for i, col in enumerate(median_gp.T):
-                median_gp[:,i] = savgol_filter(col, 51, 3)
+                median_gp[:, i] = medfilt(col, kernel_size=51)
             median_gp = median_gp.T
 
             median_gp = self.interpolate_grid(median_gp, phase_grid, filter_window=171)
             for i, col in enumerate(median_gp):
-                median_gp[i, :] = savgol_filter(col, 51, 3)
+                median_gp[i, :] = medfilt(col, kernel_size=51)
 
-            # iqr_grid = np.nanstd(np.dstack(gaussian_processes), -1)
-            # iqr_grid = sigma_clip(iqr_grid, sigma=3, maxiters=5)
-            iqr_grid = iqr(np.dstack(gaussian_processes), axis=-1, nan_policy='omit')
+            iqr_grid = np.nanstd(np.dstack(gaussian_processes), -1)
             iqr_grid = self.interpolate_grid(iqr_grid.T, wl_grid, filter_window=31)
             for i, col in enumerate(iqr_grid.T):
-                iqr_grid[:,i] = savgol_filter(col, 51, 3)
+                iqr_grid[:, i] = medfilt(col, kernel_size=51)
             iqr_grid = iqr_grid.T
 
             iqr_grid = self.interpolate_grid(iqr_grid, phase_grid, filter_window=171)
             for i, col in enumerate(iqr_grid):
-                iqr_grid[i, :] = savgol_filter(col, 51, 3)
+                iqr_grid[i, :] = medfilt(col, kernel_size=51)
             
             Z = median_gp
 
