@@ -39,6 +39,7 @@ def mock_datacube() -> pd.DataFrame:
             "Nondetection": np.asarray([False, False, False]),
             "ShiftedWavelength": np.asarray([5050.0, 5000.0, 5000.0]),
             "LogShiftedWavelength": np.log10(np.asarray([5050.0, 5000.0, 5000.0])),
+            "MagFromPeak": np.asarray([-2.0, 0.0, -1.0]),
         }
     )
 

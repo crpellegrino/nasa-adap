@@ -14,6 +14,6 @@ def mock_gp3d(mock_sncollection, mock_kernel) -> GP3D:
         log_transform=22,
         set_to_normalize=mock_sncollection,
     )
-    mock_gp.prepare_data = Mock(return_value=None)
+    mock_gp._prepare_data = Mock(return_value=None)
     
     return mock_gp

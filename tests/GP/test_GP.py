@@ -22,17 +22,17 @@ class TestGP:
         ), patch(
             "os.path.exists", Mock(return_value=True)
         ), patch("pandas.read_csv", return_value=mock_datacube):
-            self.gp.prepare_data()
+            self.gp._prepare_data()
             assert isinstance(self.gp.collection.sne[0].cube, pd.DataFrame)
 
     def test_process_dataset(self):
         """Test process_dataset method"""
-        phases, wls, mags, errs = self.gp.process_dataset("B")
+        phases, wls, mags, errs = self.gp._process_dataset("B")
         assert all([isinstance(arr, np.ndarray) for arr in [phases, wls, mags, errs]])
 
     def test_run_gp(self, mock_process_data_result):
         with patch(
-            "caat.GP.GP.process_dataset", Mock(return_value=mock_process_data_result)
+            "caat.GP.GP._process_dataset", Mock(return_value=mock_process_data_result)
         ), patch(
             "sklearn.gaussian_process.GaussianProcessRegressor.fit", Mock(return_value=None)
         ):
@@ -47,7 +47,7 @@ class TestGP:
             np.random.rand(10),
         )
         with patch(
-            "caat.GP.GP.process_dataset", Mock(return_value=mock_process_data_result)
+            "caat.GP.GP._process_dataset", Mock(return_value=mock_process_data_result)
         ), patch(
             "sklearn.gaussian_process.GaussianProcessRegressor.fit", Mock(return_value=None)
         ):
@@ -62,7 +62,7 @@ class TestGP:
         )
         mock_plot_gp = Mock(return_value=None)
         with patch(
-            "caat.GP.GP.process_dataset", Mock(return_value=mock_process_data_result)
+            "caat.GP.GP._process_dataset", Mock(return_value=mock_process_data_result)
         ), patch(
             "sklearn.gaussian_process.GaussianProcessRegressor.fit", Mock(return_value=None)
         ), patch(

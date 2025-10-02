@@ -17,7 +17,7 @@ class TestGP3D:
     def test_build_samples(self):
         """Test build_samples method"""
         ### Test all boolean combinations of log_transform and use_flux
-        with patch("caat.GP.GP.process_dataset", Mock(
+        with patch("caat.GP.GP._process_dataset", Mock(
             return_value=(
                 np.asarray([0.5, 3.5]), 
                 np.asarray([-1.0, 3.0]),
@@ -27,7 +27,7 @@ class TestGP3D:
         )):
 
             phases, wls, mags, err_grid = (
-                self.gp.build_samples('B')
+                self.gp._build_samples('B')
             )
 
             assert all([isinstance(var, np.ndarray) for var in [phases, mags, wls, err_grid]])
@@ -35,13 +35,13 @@ class TestGP3D:
 
     def test_process_dataset(self):
         """Test process_dataset method"""
-        template_df = self.gp.process_dataset()
+        template_df = self.gp._process_dataset()
         assert isinstance(template_df, pd.DataFrame)
 
     def test_median_grid(self, mock_datacube):
         """Test construct_median_grid method"""
         phase_grid, wl_grid, mag_grid, err_grid = (
-            self.gp.construct_median_grid(
+            self.gp._construct_median_grid(
                 self.phasemin,
                 self.phasemax,
                 ['B'],
@@ -57,7 +57,7 @@ class TestGP3D:
     def test_polynomial_grid(self, mock_datacube):
         """Test construct_polynomial_grid method"""
         phase_grid, wl_grid, mag_grid, err_grid = (
-            self.gp.construct_polynomial_grid(
+            self.gp._construct_polynomial_grid(
                 self.phasemin,
                 self.phasemax,
                 ['B'],
@@ -72,7 +72,7 @@ class TestGP3D:
 
     def test_subtract_from_grid(self, mock_sn):
         """Test subtract_from_grid method"""
-        residuals = self.gp.subtract_data_from_grid(
+        residuals = self.gp._subtract_data_from_grid(
             mock_sn,
             ['B'],
             self.phase_grid,
@@ -105,7 +105,7 @@ class TestGP3D:
             wl_inds_fitted, 
             phase_inds_fitted, 
             min_phase
-        ) = self.gp.build_test_wavelength_phase_grid_from_photometry(
+        ) = self.gp._build_test_wavelength_phase_grid_from_photometry(
             mock_datacube["LogShiftedWavelength"].values,
             mock_datacube["LogPhase"].values,
             self.wl_grid,
@@ -127,7 +127,7 @@ class TestGP3D:
                 pass
 
         with patch(
-            "caat.GP3D.GP3D.construct_polynomial_grid", Mock(
+            "caat.GP3D.GP3D._construct_polynomial_grid", Mock(
                 return_value=(
                     self.phase_grid, 
                     self.wl_grid,
@@ -136,7 +136,7 @@ class TestGP3D:
                 )
             )
         ), patch(
-            "caat.GP3D.GP3D.subtract_data_from_grid", Mock(
+            "caat.GP3D.GP3D._subtract_data_from_grid", Mock(
                 return_value=pd.DataFrame(
                     [
                         {

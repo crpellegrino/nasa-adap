@@ -35,20 +35,20 @@ class Fitter(ABC):
 
     Required Methods:
     -------------
-    prepare_data:
+    _prepare_data:
         Initializes the data set to be used as input in the fitting routine
-    process_dataset:
+    _process_dataset:
         Processes the initialized data into the form used in the fitting routine
     predict:
         Runs the fitting routine and produces a prediction using the inputted data
     """
 
     @abstractmethod
-    def prepare_data():
+    def _prepare_data():
         raise NotImplementedError("Subclasses must implement this method.")  # pragma: no cover
 
     @abstractmethod
-    def process_dataset():
+    def _process_dataset():
         raise NotImplementedError("Subclasses must implement this method.")  # pragma: no cover
 
     @abstractmethod
@@ -80,7 +80,7 @@ class GP(Fitter):
         self.phasemax = phasemax
         self.log_transform = log_transform
 
-    def prepare_data(self):
+    def _prepare_data(self):
         """
         Use the flags set in __init__ to filter the pandas dataframes for each SN
         in the science and control samples
@@ -167,7 +167,7 @@ class GP(Fitter):
 
             sn.cube = cube
 
-    def process_dataset(
+    def _process_dataset(
         self,
         filt,
         sn_set=None,
@@ -210,9 +210,9 @@ class GP(Fitter):
 
     def run(self, filt, test_size):
 
-        self.prepare_data()
+        self._prepare_data()
 
-        phases, mags, errs, _ = self.process_dataset(filt, sn_set=self.collection)
+        phases, mags, errs, _ = self._process_dataset(filt, sn_set=self.collection)
         X_train, _, Y_train, _, Z_train, _ = train_test_split(phases, mags, errs, test_size=test_size)
 
         ### Get array of errors at each timestep
