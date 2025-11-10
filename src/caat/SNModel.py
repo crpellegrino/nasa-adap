@@ -286,7 +286,7 @@ class SNModel:
         if show:
             plt.show()
 
-    def predict_photometry_points(self, wavelengths: np.ndarray, phases: np.ndarray, show: bool = True):
+    def predict_photometry_points(self, wavelengths: np.ndarray, phases: np.ndarray, show: bool = True, **kwargs):
         """
         Predict a series of photometry points given arrays of wavelength and phase
         """
@@ -298,7 +298,13 @@ class SNModel:
         log_phases = np.log(phases + self.log_transform)
         log_waves = np.log10(wavelengths)
 
-        prediction, dev = self.surface.predict(np.vstack((log_phases, log_waves)).T, return_std=True)
+        predicted_lc, dev = self.surface.predict(np.vstack((log_phases, log_waves)).T, return_std=True)
+
+        # For each predicted point, define a Gaussian distribution with uncertainty=dev and sample from it
+        prediction = []
+        for i in range(len(predicted_lc)):
+            prediction.append(np.random.normal(predicted_lc[i], dev[i], 1)[0])
+        prediction = np.asarray(prediction)
         
         # Add back on template mag for the correct phase and wavelength inds
         if self.template is not None:
@@ -312,14 +318,16 @@ class SNModel:
         else:
             template_lc = np.zeros(len(prediction))
 
-        plt.errorbar(phases, prediction + template_lc, yerr=dev, fmt='o')
+        plt.errorbar(phases, prediction + template_lc, yerr=dev, fmt='o', color=kwargs.get('color', 'k'))
         plt.xlabel("Phase (days)")
         plt.ylabel("Log10(Flux) Relative to Peak")
         plt.title(f"Predicted Photometry Points")
         if show:
             plt.show()
 
-    def compare_lightcurve_with_photometry(self, sn: SN, filt: str):
+        return phases, prediction + template_lc, dev
+
+    def compare_lightcurve_with_photometry(self, sn: SN, filt: str, show: bool = True):
         datacube = DataCube(sn=sn)
         datacube.construct_cube()  
         cube = datacube.cube
@@ -330,9 +338,10 @@ class SNModel:
         observed_fluxes = filtered_cube["ShiftedMag"].values
         observed_flux_errs = filtered_cube["ShiftedFluxerr"].values
 
-        plt.errorbar(observed_phases, observed_fluxes, yerr=observed_flux_errs, fmt='o', label=sn.name)
+        plt.errorbar(observed_phases, observed_fluxes, yerr=observed_flux_errs, color='lime', fmt='o', mec='k', label=sn.name)
         plt.legend()
-        plt.show()
+        if show:
+            plt.show()
 
     def fit_photometry(
         self,
