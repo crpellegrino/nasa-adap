@@ -9,12 +9,21 @@ Time-domain astronomy is entering a golden age of discovery, powered by wide-fie
 `GOPREAUX` addresses these problems by producing multidimensional template light curve and spectral surfaces of different classes of transients for the first time. `GOPREAUX` models aggregated archival data, spanning the ultraviolet to the infrared, using Gaussian Process Regression across both phase and wavelength simultaneously. The models produce "template" time-evolving spectral energy distribution surfaces that can be used for a variety of use cases--to perform physical parameter inference, generate machine learning training sets of different transients at arbitrary phase and redshift, or identify rare and unusual transients in real time, to name a few use cases. 
 
 ## Installation and Setup
-Dependencies are managed using `poetry`. The recommended installation is to create a new python environment for this repo and install `poetry` within that environment. Poetry can then be used to install the dependencies:
+Dependencies are managed using `poetry`. The recommended installation is to create a new python environment for this repo and install `poetry` within that environment.
 
 ```
 > conda create -n gopreaux python=3.11
 > conda activate gopreaux
 > pip install poetry
+```
+`poetry` can then be used to install `GOPREAUX` and its dependencies. First, clone this repository:
+
+```
+> git clone https://github.com/crpellegrino/gopreaux.git
+```
+Then from the root of the repository, run the installation:
+```
+> cd gopreaux
 > poetry install
 ```
 
@@ -26,6 +35,8 @@ dustmaps.sfd.fetch()
 ```
 
 That's it! `gopreaux` should now be ready to use.
+
+**Note**: Recent changes to the Harvard Dataverse API have broken the `dustmaps` `fetch()` methods. To work around this, manually download the SFD FITS files from the Harvard Dataverse and place them inside the `data/sfd/` subdirectory within your `dustmaps` installation (i.e. inside your conda environment).
 
 ## Data Structure
 
@@ -40,6 +51,7 @@ flowchart TD
         A---->E[SLSN-II];
         A---->F[SNII];
         A---->G[SNIIn];
+        A---->b[SNIa];
         A---->a[Other];
     end;
     subgraph Subtypes;
@@ -54,8 +66,8 @@ flowchart TD
         F---->N(SNII-pec);
         F---->O(SNII);
         G---->P(SNIIn);
-        a---->Q(SNIa);
-        a---->R(SNIa-pec);
+        b---->Q(SNIa);
+        b---->R(SNIa-pec);
 		a---->X(TDE);
 		a---->Y(Unclassified/Other);
     end;
